@@ -1,0 +1,328 @@
+esphome:
+  name: asistente-cochera
+  friendly_name: Asistente de Estacionamiento Autónomo
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(flag_inicio).value() = true;
+
+esp8266:
+  board: nodemcuv2
+
+logger:
+
+# Servidor Web local en modo Punto de Acceso (Sin conexión exterior necesaria)
+web_server:
+  port: 80
+
+wifi:
+  ap:
+    ssid: "Asistente-Cochera-AP"
+
+captive_portal:
+
+# Carga local de la fuente Bitmap TomThumb.bdf (Debe estar en la raíz del proyecto)
+font:
+  - file: "TomThumb.bdf"
+    id: font_bdf
+
+# Variables Globales de Estado Interno
+globals:
+  - id: auto_estacionado_inicio
+    type: bool
+    initial_value: 'false'
+  - id: distancia_fondo_previa
+    type: float
+    initial_value: '0.0'
+  - id: flag_inicio
+    type: bool
+    initial_value: 'true'
+  - id: estatico_desde_ms
+    type: uint32
+    initial_value: '0'
+  - id: modo_ready_post_stop
+    type: bool
+    initial_value: 'false'
+
+# Umbrales Configurables (Ajustables dinámicamente desde la interfaz Web)
+number:
+  - platform: template
+    name: "Tiempo Inactividad STOP (s)"
+    id: tiempo_inactividad_stop
+    optimistic: true
+    initial_value: 10
+    min_value: 3
+    max_value: 60
+    step: 1
+
+  - platform: template
+    name: "Umbral Lateral (cm)"
+    id: umbral_lateral
+    optimistic: true
+    initial_value: 50
+    min_value: 10
+    max_value: 100
+    step: 5
+
+  - platform: template
+    name: "Umbral Inicio (cm)"
+    id: umbral_inicio
+    optimistic: true
+    initial_value: 150
+    min_value: 50
+    max_value: 300
+    step: 10
+
+  - platform: template
+    name: "Umbral Precaucion (cm)"
+    id: umbral_precaucion
+    optimistic: true
+    initial_value: 50
+    min_value: 20
+    max_value: 100
+    step: 5
+
+  - platform: template
+    name: "Umbral Alerta (cm)"
+    id: umbral_alerta
+    optimistic: true
+    initial_value: 20
+    min_value: 10
+    max_value: 40
+    step: 2
+
+  - platform: template
+    name: "Umbral STOP (cm)"
+    id: umbral_stop
+    optimistic: true
+    initial_value: 10
+    min_value: 5
+    max_value: 20
+    step: 1
+
+# Sensores Ultrasonido HC-SR04
+sensor:
+  - platform: ultrasonic
+    trigger_pin: GPIO12
+    echo_pin: GPIO14
+    name: "Sensor Fondo"
+    id: sensor_fondo
+    update_interval: 100ms
+    filters:
+      - multiply: 100.0 # Conversión m a cm
+
+  - platform: ultrasonic
+    trigger_pin: GPIO12
+    echo_pin: GPIO5
+    name: "Sensor Izquierda"
+    id: sensor_izq
+    update_interval: 100ms
+    filters:
+      - multiply: 100.0
+
+  - platform: ultrasonic
+    trigger_pin: GPIO12
+    echo_pin: GPIO4
+    name: "Sensor Derecha"
+    id: sensor_der
+    update_interval: 100ms
+    filters:
+      - multiply: 100.0
+
+# Sensores de Texto para Simulación Web
+text_sensor:
+  - platform: template
+    name: "Modo del Sistema"
+    id: modo_sistema
+    icon: "mdi:garage"
+
+  - platform: template
+    name: "Simulación de Pantalla LED (8x32)"
+    id: texto_pantalla
+    icon: "mdi:led-strip-scan"
+
+# Bus SPI y Matriz LED MAX7219
+spi:
+  clk_pin: GPIO14
+  mosi_pin: GPIO13
+
+display:
+  - platform: max7219digit
+    cs_pin: GPIO15
+    num_chips: 4
+    id: matriz_led
+    lambda: |-
+      static int frame_counter = 0;
+      frame_counter++;
+
+      // Restaurar modo normal por defecto
+      it.invert_on_off(false);
+
+      float fondo = id(sensor_fondo).state;
+      float izq = id(sensor_izq).state;
+      float der = id(sensor_der).state;
+
+      if (isnan(fondo) || fondo <= 0.0) return;
+
+      // Validación de alineación: AMBOS sensores deben detectar el auto <= umbral
+      bool auto_lat_izq = (!isnan(izq) && izq > 0.0 && izq <= id(umbral_lateral).value());
+      bool auto_lat_der = (!isnan(der) && der > 0.0 && der <= id(umbral_lateral).value());
+      bool pres_lateral = auto_lat_izq && auto_lat_der;
+
+      // Evaluación de movimiento y marcha atrás
+      float prev = id(distancia_fondo_previa).value();
+      float diff = fabsf(fondo - prev);
+      bool en_movimiento = (diff > 1.0);
+      bool retrocediendo = (prev > 0.0) && (fondo > prev + 1.0);
+      id(distancia_fondo_previa).value() = fondo;
+
+      uint32_t ahora = millis();
+
+      // Gestión de temporizador de inactividad
+      if (en_movimiento) {
+        id(estatico_desde_ms).value() = ahora;
+        id(modo_ready_post_stop).value() = false;
+      } else if (id(estatico_desde_ms).value() == 0) {
+        id(estatico_desde_ms).value() = ahora;
+      }
+
+      uint32_t tiempo_estatico_ms = ahora - id(estatico_desde_ms).value();
+      uint32_t limite_inactividad_ms = (uint32_t)(id(tiempo_inactividad_stop).value() * 1000.0);
+
+      // 1. EVALUACIÓN DE ARRANQUE CON AUTO ESTACIONADO
+      if (id(flag_inicio).value()) {
+        if (fondo <= id(umbral_alerta).value()) {
+          id(auto_estacionado_inicio).value() = true;
+        }
+        id(flag_inicio).value() = false;
+      }
+
+      if (retrocediendo || fondo < prev - 2.0) {
+        id(auto_estacionado_inicio).value() = false;
+      }
+
+      // 2. ESTADO AUTO ESTACIONADO AL ENCENDER -> "READY"
+      if (id(auto_estacionado_inicio).value() && !retrocediendo && !pres_lateral) {
+        it.set_intensity(8);
+        it.print(4, 0, id(font_bdf), "READY");
+
+        id(modo_sistema).publish_state("En Espera / Listo (Arranque)");
+        id(texto_pantalla).publish_state("[   R E A D Y   ]");
+        return;
+      }
+
+      // 3. ESTADO RETROCESO / ALEJAMIENTO (Scroll 'v' hacia abajo)
+      if (retrocediendo && !pres_lateral) {
+        it.set_intensity(12);
+
+        int offset_y = (frame_counter / 3) % 8;
+        it.draw_vh_line(0, offset_y, 3, true);
+        it.draw_vh_line(31, offset_y, 3, true);
+        it.print(12, 0, id(font_bdf), "v");
+
+        id(modo_sistema).publish_state("Retroceso / Salida");
+        id(texto_pantalla).publish_state("[       v       ]");
+        return;
+      }
+
+      // 4. ESTADO ALINEACIÓN LATERAL (Exclusivo con ambos sensores activados)
+      if (pres_lateral) {
+        it.set_intensity(15);
+
+        // Muesca central 1px arriba (fila 0) y 1px abajo (fila 7) en cols 15 y 16
+        it.draw_vh_line(15, 0, 1, false);
+        it.draw_vh_line(16, 0, 1, false);
+        it.draw_vh_line(15, 7, 1, false);
+        it.draw_vh_line(16, 7, 1, false);
+
+        // Barra móvil (2px ancho x 6px alto, filas 1 a 6)
+        float dif_mm = (izq - der) * 10.0;
+        int pos_x = 15 + (int)(dif_mm / 20.0);
+        if (pos_x < 0) pos_x = 0;
+        if (pos_x > 30) pos_x = 30;
+
+        it.draw_vh_line(pos_x, 1, 6, false);
+        it.draw_vh_line(pos_x + 1, 1, 6, false);
+
+        id(modo_sistema).publish_state("Alineación Lateral");
+
+        if (dif_mm > 50.0) {
+          it.print(24, 0, id(font_bdf), ">>");
+          id(texto_pantalla).publish_state("[   ║     :       >>  ]");
+        } else if (dif_mm < -50.0) {
+          it.print(0, 0, id(font_bdf), "<<");
+          id(texto_pantalla).publish_state("[  <<     :     ║     ]");
+        } else {
+          id(texto_pantalla).publish_state("[         :           ]");
+        }
+        return;
+      }
+
+      // 5. ESTADO STOP / TRANSICIÓN A READY POR INACTIVIDAD
+      if (fondo <= id(umbral_stop).value()) {
+        if (tiempo_estatico_ms >= limite_inactividad_ms) {
+          id(modo_ready_post_stop).value() = true;
+        }
+
+        if (id(modo_ready_post_stop).value()) {
+          it.set_intensity(8);
+          it.print(4, 0, id(font_bdf), "READY");
+
+          id(modo_sistema).publish_state("Estacionado (Pausa Inactividad)");
+          id(texto_pantalla).publish_state("[   R E A D Y   ]");
+          return;
+        }
+
+        it.set_intensity(15);
+        bool estado_inversion = ((frame_counter / 3) % 2 == 0);
+        it.invert_on_off(estado_inversion);
+
+        it.print(4, 0, id(font_bdf), "STOP");
+
+        id(modo_sistema).publish_state("Parada Crítica (STOP)");
+        id(texto_pantalla).publish_state("[  S T O P  ]");
+        return;
+      }
+
+      // 6. ESTADO APROXIMACIÓN (Avanzando hacia la pared)
+      if (fondo <= id(umbral_inicio).value()) {
+
+        if (fondo <= id(umbral_alerta).value()) {
+          id(modo_sistema).publish_state("Aproximación - Alerta");
+          if ((frame_counter / 4) % 2 == 0) {
+            it.set_intensity(15);
+          } else {
+            it.set_intensity(4);
+          }
+        } else if (fondo <= id(umbral_precaucion).value()) {
+          id(modo_sistema).publish_state("Aproximación - Precaución");
+          it.set_intensity(15);
+        } else {
+          id(modo_sistema).publish_state("Aproximación - Normal");
+          it.set_intensity(15);
+        }
+
+        int delay_scroll = (fondo <= id(umbral_precaucion).value()) ? 8 : 4;
+        int offset_y = 7 - ((frame_counter / delay_scroll) % 8);
+
+        it.draw_vh_line(0, offset_y, 3, true);
+        it.draw_vh_line(31, offset_y, 3, true);
+
+        it.printf(8, 0, id(font_bdf), "%.0f", fondo);
+
+        char buf[30];
+        snprintf(buf, sizeof(buf), "«   %.0f cm   »", fondo);
+        id(texto_pantalla).publish_state(buf);
+        return;
+      }
+
+      // 7. ESTADO REPOSO / REPAUSO GENERAL
+      it.set_intensity(8);
+      it.print(4, 0, id(font_bdf), "READY");
+
+      id(modo_sistema).publish_state("En Espera / Sistema Listo");
+      id(texto_pantalla).publish_state("[   R E A D Y   ]");
+
+
+```markdown
