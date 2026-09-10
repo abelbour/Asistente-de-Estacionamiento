@@ -36,7 +36,7 @@ ota:
 font:
   - file: "spleen-5x8.bdf"
     id: font_bdf
-    glyphs: "READYSTOP0123456789 "
+    glyphs: "READYSTOPFIL0123456789 _"
 
 # Variables Globales de Estado Interno
 globals:
@@ -266,6 +266,10 @@ display:
         it.line(x, y, x + 2, y + 2);
         it.line(x + 2, y + 2, x + 4, y);
       };
+      // Rango X recortado en los dígitos: la barra lo tapa y se ve invertido
+      int carve_x0 = 0;
+      int carve_x1 = -1;
+
       // Dígitos 3x5 dibujados (sin fuente): 5 filas x 3 bits, bit 2 = columna izquierda
       static const uint8_t DIG35[10][5] = {
         {0b111, 0b101, 0b101, 0b101, 0b111}, // 0
@@ -282,8 +286,11 @@ display:
       auto draw_digit35 = [&](int x, int y, int d) {
         for (int r = 0; r < 5; r++) {
           for (int c = 0; c < 3; c++) {
-            if (DIG35[d][r] & (1 << (2 - c))) {
-              it.line(x + c, y + r, x + c, y + r);
+            int px = x + c;
+            if (px < carve_x0 || px > carve_x1) {
+              if (DIG35[d][r] & (1 << (2 - c))) {
+                it.line(px, y + r, px, y + r);
+              }
             }
           }
         }
@@ -308,20 +315,28 @@ display:
         it.line(x, y + 1, x + 1, y + 2);
       };
 
+      // Prompt retro: READY_ con guion parpadeante (6 glifos x 5px = x 1..30), brillo máximo
+      auto print_ready_prompt = [&]() {
+        it.set_intensity(15);
+        it.print(1, 0, id(font_bdf), "READY");
+        if ((frame_counter / 5) % 2 == 0) {
+          it.print(26, 0, id(font_bdf), "_");
+        }
+      };
+
       float fondo = id(sensor_fondo).state;
       float izq = id(sensor_izq).state;
       float der = id(sensor_der).state;
 
-      // Lectura inválida: READY parpadeante lento (distinguible del READY fijo = sistema OK).
+      // Lectura inválida: FAIL invertido fijo a intensidad 12, sin parpadeo.
       // No tocar temporizadores ni distancia previa, no congelar variables.
       bool fondo_valido = (!isnan(fondo) && fondo > 0.0);
       if (!fondo_valido) {
-        it.set_intensity(8);
-        if ((frame_counter / 5) % 2 == 0) {
-          it.print(1, 0, id(font_bdf), "READY");
-        }
+        it.invert_on_off(true);
+        it.set_intensity(12);
+        it.print(6, 0, id(font_bdf), "FAIL");
         publish_modo("Sensor desconectado / Sin lectura");
-        publish_pantalla("[ SIN LECTURA ]");
+        publish_pantalla("[  F A I L  ]");
         return;
       }
 
@@ -380,8 +395,7 @@ display:
 
       // 2. ESTADO AUTO ESTACIONADO AL ENCENDER -> "READY"
       if (id(auto_estacionado_inicio) && !retrocediendo && !pres_lateral) {
-        it.set_intensity(8);
-        it.print(1, 0, id(font_bdf), "READY");
+        print_ready_prompt();
 
         publish_modo("En Espera / Listo (Arranque)");
         publish_pantalla("[   R E A D Y   ]");
@@ -390,7 +404,7 @@ display:
 
       // 3. ESTADO RETROCESO / ALEJAMIENTO (Chevrones gráficos hacia abajo)
       if (retrocediendo && !pres_lateral) {
-        it.set_intensity(12);
+        it.set_intensity(15);
 
         int offset_y = (frame_counter / 3) % 8;
         chevron_down(1, offset_y);
@@ -433,18 +447,15 @@ display:
         if (h_dev_izq) h_dev_izq = ((der - izq) > lim_dev - 1.0);
         else h_dev_izq = ((der - izq) > lim_dev);
 
-        // Distancias (se calculan primero: definen la colisión con el indicador)
+        // Distancias (primero: la barra las recorta al taparlas)
         int ni = (int)izq;
         int nd = (int)der;
         if (ni < 0) ni = 0;
         if (ni > 99) ni = 99;
         if (nd < 0) nd = 0;
         if (nd > 99) nd = 99;
-        int wl = (ni >= 10) ? 8 : 3;
-        int wr = (nd >= 10) ? 8 : 3;
 
-        // Indicador de posición: barra de progreso sólida desde el centro.
-        // 5px de alto si no colisiona con los números, 3px si sí. Siempre arriba.
+        // Barra de progreso sólida desde el centro, toda la altura (filas 0-7).
         bool centrado = (!h_dev_der && !h_dev_izq);
         int pos_x = 15 + (int)(dif_mm / 20.0);
         if (pos_x < 0) pos_x = 0;
@@ -453,8 +464,8 @@ display:
         if (centrado) { bar_x0 = 15; bar_x1 = 16; }
         else if (pos_x > 16) { bar_x0 = 16; bar_x1 = pos_x; }
         else { bar_x0 = pos_x; bar_x1 = 15; }
-        int bar_h = 5;
-        if (bar_x0 < wl || bar_x1 >= 32 - wr) bar_h = 3;
+        carve_x0 = bar_x0;
+        carve_x1 = bar_x1;
 
         // Ticks fijos de límite del portón (1px ancho x 2px alto, arriba);
         // el del lado contrario al desvío se reemplaza por el doble-chevrón (corrección).
@@ -477,17 +488,15 @@ display:
           chevron_right(23 + slide, 0);
           chevron_right(26 + slide, 0);
         }
-        for (int x = bar_x0; x <= bar_x1; x++) {
-          it.vertical_line(x, 0, bar_h);
-        }
-
-        // Marca de centro fija abajo (2x2 px: cols 15-16, filas 6-7, alineada abajo)
-        it.vertical_line(15, 6, 2);
-        it.vertical_line(16, 6, 2);
-
-        // Distancias contra los márgenes: izq desde x=0, der terminando en x=31
+        // Distancias contra los márgenes (recortadas donde pasa la barra: se ven invertidas)
         draw_num35(0, 3, ni);
-        draw_num35(32 - wr, 3, nd);
+        int wd = (nd >= 10) ? 8 : 3;
+        draw_num35(32 - wd, 3, nd);
+
+        // Barra sólida a toda altura (los dígitos tapados quedaron en negativo)
+        for (int x = bar_x0; x <= bar_x1; x++) {
+          it.vertical_line(x, 0, 8);
+        }
 
         publish_modo("Alineación Lateral");
 
@@ -500,6 +509,9 @@ display:
           snprintf(buf_lat, sizeof(buf_lat), "[ %.0fcm >> : ║ %.0fcm ]", izq, der);
           publish_pantalla(std::string(buf_lat));
         } else {
+          snprintf(buf_lat, sizeof(buf_lat), "[ %.0fcm | : | %.0fcm ]", izq, der);
+          publish_pantalla(std::string(buf_lat));
+        }
         return;
       }
 
@@ -510,8 +522,7 @@ display:
         }
 
         if (id(modo_ready_post_stop)) {
-          it.set_intensity(8);
-          it.print(1, 0, id(font_bdf), "READY");
+          print_ready_prompt();
 
           publish_modo("Estacionado (Pausa Inactividad)");
           publish_pantalla("[   R E A D Y   ]");
@@ -541,7 +552,7 @@ display:
           if ((frame_counter / 4) % 2 == 0) {
             it.set_intensity(15);
           } else {
-            it.set_intensity(4);
+            it.set_intensity(8);
           }
         } else if (h_prec) {
           publish_modo("Aproximación - Precaución");
@@ -567,8 +578,7 @@ display:
       }
 
       // 7. ESTADO REPOSO / REPAUSO GENERAL
-      it.set_intensity(8);
-      it.print(1, 0, id(font_bdf), "READY");
+      print_ready_prompt();
 
       publish_modo("En Espera / Sistema Listo");
       publish_pantalla("[   R E A D Y   ]");

@@ -24,15 +24,15 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 
 | Estado | Condición de Activación | Representación Matriz LED ($8\times32$) | Simulación Web UI |
 | :--- | :--- | :--- | :--- |
-| **Arranque / Reposo** | Auto estático al encender o fuera de rango | Texto fijo **`READY`** (fuente Spleen 5x8) | `[   R E A D Y   ]` |
+| **Arranque / Reposo** | Auto estático al encender o fuera de rango | Prompt retro **`READY_`** con cursor parpadeante (500 ms) | `[   R E A D Y   ]` |
 | **Retroceso / Salida** | Distancia de fondo aumentando ($> +1\text{ cm}$) | Doble chevrón gráfico `vv` bajando (laterales, scroll `/3`) | `[      vv      ]` |
-| **Alineación Lateral** | Ambos sensores laterales $\le 50\text{ cm}$ (+ histéresis 2 cm) | Arriba: ticks de límite $1\times2\text{px}$ en bordes + barra de progreso sólida desde el centro (largo = magnitud del desvío; 5 px de alto, o 3 px si chocaría con los números); en desvío (> `umbral_desvio_chev`, histéresis 1 cm) el tick contrario se reemplaza por triple mini-chevrón 2x3 en zona de 13 px del lado libre apuntando la corrección (marcha hacia el borde). Abajo: distancias 3x5 contra los márgenes con marca de centro fija de $2\times2\text{px}$ abajo (filas 6–7, p. ej. `30 | 30`) | `[ 45cm << : ║ 30cm ]` (valores en vivo) |
+| **Alineación Lateral** | Ambos sensores laterales $\le 50\text{ cm}$ (+ histéresis 2 cm) | Arriba: ticks de límite $1\times2\text{px}$ en bordes + barra de progreso sólida desde el centro a toda altura (filas 0–7, largo = magnitud del desvío); en desvío (> `umbral_desvio_chev`, histéresis 1 cm) el tick contrario se reemplaza por triple mini-chevrón 2x3 en zona de 13 px del lado libre apuntando la corrección. Abajo: distancias 3x5 contra los márgenes; los píxeles tapados por la barra se ven invertidos (calado en negativo, p. ej. `30 | 30`) | `[ 45cm << : ║ 30cm ]` (valores en vivo) |
 | **Aproximación Normal** | Distancia de fondo entre $50\text{ cm}$ y $150\text{ cm}$ | Distancia en cm + doble chevrón gráfico `^^` subiendo (scroll rápido `/4`) | `«   120 cm   »` |
 | **Precaución / Alerta**| Distancia de fondo entre $10\text{ cm}$ y $50\text{ cm}$ | Scroll ralentizado (`/8`) y parpadeo de brillo en Alerta ($\le 20\text{ cm}$) | `«   30 cm   »` |
 | **STOP Crítico** | Distancia de fondo $\le 10\text{ cm}$ | Texto **`STOP`** con inversión fija y parpadeo de brillo (12 ↔ 7) | `[  S T O P  ]` |
 | **Peligro Poste Lateral** | Algún lateral $\le 15\text{ cm}$ (estando en alineación, con switch activado) | Alterna pantalla de alineación con **`STOP`** invertido fijo (500 ms cada una) | `[  S T O P  ]` / valores en vivo |
-| **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a **`READY`** de bajo consumo | `[   R E A D Y   ]` |
-| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ | Texto **`READY` parpadeante lento** (distinguible del `READY` fijo = sistema OK; conserva temporizadores) | `[ SIN LECTURA ]` |
+| **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a prompt **`READY_`** (sin alertas, brillo máximo) | `[   R E A D Y   ]` |
+| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ | Texto **`FAIL`** invertido fijo a intensidad 12, sin parpadeo (inequívoco; conserva temporizadores) | `[  F A I L  ]` |
 
 > La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4` y `/8` de la tabla están calculadas sobre esa base. Los dígitos 3x5 de alineación y las flechas `^v` son gráficos dibujados con `it.line`, no fuente.
 
@@ -143,7 +143,7 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 
 | Síntoma | Causa probable | Acción |
 | :--- | :--- | :--- |
-| `[ SIN LECTURA ]` permanente | Echo fondo sin señal o auto fuera de alcance (> 2 m) | Revisar cableado/divisor de GPIO12, `esphome logs parking.yaml` |
+| `[  F A I L  ]` permanente | Echo fondo sin señal o auto fuera de alcance (> 2 m) | Revisar cableado/divisor de GPIO12, `esphome logs parking.yaml` |
 | Texto espejado o rotado | Orden de encadenado DOUT→DIN invertido | Probar `reverse_enable`, `rotate_chip` o `flip_x` |
 | Brillo bajo / flicker | Caída de tensión con 4 chips a 3.3 V o cable UTP muy largo | Level-converter, alimentar matriz con 5 V dedicados |
 | No aparece el AP | Bootloop o falta de alimentación | Verificar pines de strapping (GPIO0/2/15) y fuente 5 V |
