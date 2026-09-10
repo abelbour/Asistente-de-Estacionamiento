@@ -287,8 +287,11 @@ display:
         for (int r = 0; r < 5; r++) {
           for (int c = 0; c < 3; c++) {
             int px = x + c;
-            if (px < carve_x0 || px > carve_x1) {
-              if (DIG35[d][r] & (1 << (2 - c))) {
+            if (DIG35[d][r] & (1 << (2 - c))) {
+              if (px >= carve_x0 && px <= carve_x1) {
+                // Dentro de la barra: borra el píxel (calado en negativo)
+                it.line(px, y + r, px, y + r, COLOR_OFF);
+              } else {
                 it.line(px, y + r, px, y + r);
               }
             }
@@ -488,15 +491,15 @@ display:
           chevron_right(23 + slide, 0);
           chevron_right(26 + slide, 0);
         }
-        // Distancias contra los márgenes (recortadas donde pasa la barra: se ven invertidas)
-        draw_num35(0, 3, ni);
-        int wd = (nd >= 10) ? 8 : 3;
-        draw_num35(32 - wd, 3, nd);
-
-        // Barra sólida a toda altura (los dígitos tapados quedaron en negativo)
+        // Barra sólida a toda altura PRIMERO; los dígitos se calan en negativo encima
         for (int x = bar_x0; x <= bar_x1; x++) {
           it.vertical_line(x, 0, 8);
         }
+
+        // Distancias contra los márgenes: fuera de la barra en ON, dentro en OFF (invertido)
+        draw_num35(0, 3, ni);
+        int wd = (nd >= 10) ? 8 : 3;
+        draw_num35(32 - wd, 3, nd);
 
         publish_modo("Alineación Lateral");
 

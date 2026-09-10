@@ -158,7 +158,7 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 1. **Requisitos Previos:** Tener instalado **ESPHome** mediante CLI o Docker.
 2. **Archivos Necesarios:**
 * Archivo de configuración: `parking.yaml`.
-* Fuente tipográfica bitmap: El archivo **`spleen-5x8.bdf`** debe estar en la misma carpeta que el archivo `.yaml` (solo se cargan los glifos `READYSTOP0123456789 ` para ahorrar RAM; chevrones `^v` y dígitos 3x5 son gráficos dibujados con `it.line`, no fuente).
+* Fuente tipográfica bitmap: El archivo **`spleen-5x8.bdf`** debe estar en la misma carpeta que el archivo `.yaml` (solo se cargan los glifos `READYSTOPFIL0123456789 _` para ahorrar RAM; chevrones `^v` y dígitos 3x5 son gráficos dibujados con `it.line`, no fuente).
 
 
 3. **Compilación y Flasheo Inicial:**
