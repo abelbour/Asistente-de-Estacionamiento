@@ -170,7 +170,7 @@ esphome run parking.yaml
 
 
 4. **Primer Arranque y Red:**
-El equipo sale de fábrica sin WiFi válido, así que levanta el Punto de Acceso `Asistente-Cochera-AP` (clave `ClaveSegura123`; cámbiala en la sección `wifi:` del YAML, igual que la clave `ota:`). Conéctate desde el teléfono, abre `http://192.168.4.1` (portal cautivo) y carga tu red WiFi. Desde entonces el equipo se une a tu red y responde siempre en **`http://garage.local`** (mDNS; funciona en iPhone, macOS, Windows 10+ y Chrome en Android). Si el router no está disponible, vuelve solo al modo AP.
+El YAML no trae ninguna credencial: ni WiFi ni OTA. Al primer arranque el equipo levanta el Punto de Acceso abierto `Asistente-Cochera-AP` (solo existe sin router, para el setup inicial). Conéctate desde el teléfono, abre `http://192.168.4.1` (portal cautivo) y carga tu red WiFi: queda guardada en flash y no hay que repetirlo. Desde entonces el equipo se une a tu red y responde siempre en **`http://garage.local`** (mDNS; funciona en iPhone, macOS, Windows 10+ y Chrome en Android). Si el router no está disponible, vuelve solo al modo AP. Nota: el OTA queda sin clave (cualquiera en tu LAN podría flashear el equipo); en una red hogareña normal es aceptable, en red compartida conviene agregar `password` al bloque `ota:`.
 Puedes conectarte desde cualquier teléfono o PC a `http://garage.local` (o a `http://192.168.4.1` en modo AP) para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
 
 5. **Verificación de Funcionamiento:**

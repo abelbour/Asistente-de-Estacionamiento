@@ -13,19 +13,15 @@ web_server:
   port: 80
 
 wifi:
-  # Red del hogar: si falla o no está configurada, levanta el AP de abajo (fallback).
-  # Primer arranque: conectarse al AP y cargarla vía portal cautivo (http://192.168.4.1).
-  ssid: "TuRedWiFi"
-  password: "TuClaveWiFi"
+  # Sin SSID/clave en el YAML: la red del hogar se carga vía portal cautivo.
+  # Si el router no está disponible, levanta el AP de abajo (abierto, solo setup).
   ap:
     ssid: "Asistente-Cochera-AP"
-    password: "ClaveSegura123"
 
 captive_portal:
 
 ota:
   - platform: esphome
-    password: "Cambiar-Clave-OTA"
 
 # Sin componente font: los 10 glifos 5x8 (READYSTOP_) van embebidos como tablas
 # en el lambda del display (extraídos de spleen-5x8.bdf). Nada que subir junto al YAML.
@@ -280,7 +276,7 @@ display:
                 // Dentro de la barra: borra el píxel (calado en negativo)
                 it.draw_pixel_at(px, y + r, esphome::display::COLOR_OFF);
               } else {
-                it.draw_pixel_at(px, y + r);
+                it.draw_pixel_at(px, y + r, esphome::display::COLOR_ON);
               }
             }
           }
@@ -311,7 +307,7 @@ display:
               if (px >= carve_x0 && px <= carve_x1) {
                 it.draw_pixel_at(px, py, esphome::display::COLOR_OFF);
               } else {
-                it.draw_pixel_at(px, py);
+                it.draw_pixel_at(px, py, esphome::display::COLOR_ON);
               }
             }
           }
@@ -357,7 +353,7 @@ display:
             for (int r = 0; r < 8; r++) {
               for (int c = 0; c < 5; c++) {
                 if (GLYPH58[g][r] & (1 << (4 - c))) {
-                  it.draw_pixel_at(cx + c, y + r);
+                  it.draw_pixel_at(cx + c, y + r, esphome::display::COLOR_ON);
                 }
               }
             }
