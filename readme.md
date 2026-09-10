@@ -11,7 +11,7 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 ### Principales Características
 * **Zero Power Draw en Reposo:** La alimentación general de $5\text{V}$ pasa a través de un relé comandado por un sensor magnético de lámina (reed switch) ubicado en el portón del garaje. Al cerrarse el portón o no detectar el vehículo, la alimentación se interrumpe por completo.
 * **Tolerancia a Fallos de Red:** Operación autónoma en modo AP (Punto de Acceso) local. Sin retardos por desconexiones o bloqueos por fallas de Wi-Fi.
-* **Alineación Simétrica de Precisión:** Arriba ticks de límite del portón + barra de posición (el tick contrario se vuelve chevrón de corrección en desvío); abajo marca de centro fija y distancias de ambos lados en dígitos 3x5 dibujados contra los márgenes — para evitar colisiones laterales con espejos retrovisores o columnas.
+* **Alineación Simétrica de Precisión:** Barra de progreso sólida desde el centro + doble-chevrón 3x5 del lado libre en desvío + distancias 3x5 contra los márgenes con calado en negativo — para evitar colisiones laterales con espejos retrovisores o columnas.
 * **Respuesta Dinámica según Sentido de Marcha:** Detecta automáticamente si el vehículo está ingresando (aproximación) o saliendo (retroceso), modificando el flujo visual de la pantalla.
 * **Filtrado Peatonal:** Requiere la lectura simultánea de ambos sensores laterales para activar el modo de alineación, evitando falsas alarmas por paso de personas.
 * **Suavizado de Lecturas:** Cada HC-SR04 publica en cm (`unit_of_measurement: "cm"`) con filtro de mediana de 5 muestras y disparo secuencial por turnos (round-robin cada 70 ms: fondo → izquierda → derecha, cada sensor se mide cada 210 ms) para que ningún eco interfiera con otro.
@@ -26,21 +26,22 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 | :--- | :--- | :--- | :--- |
 | **Arranque / Reposo** | Auto estático al encender o fuera de rango | Prompt retro **`READY_`** con cursor parpadeante (500 ms) | `[   R E A D Y   ]` |
 | **Retroceso / Salida** | Distancia de fondo aumentando ($> +1\text{ cm}$) | Doble chevrón gráfico `vv` bajando (laterales, scroll `/3`) | `[      vv      ]` |
-| **Alineación Lateral** | Ambos sensores laterales $\le 50\text{ cm}$ (+ histéresis 2 cm) | Arriba: ticks de límite $1\times2\text{px}$ en bordes + barra de progreso sólida desde el centro a toda altura (filas 0–7, largo = magnitud del desvío); en desvío (> `umbral_desvio_chev`, histéresis 1 cm) el tick contrario se reemplaza por triple mini-chevrón 2x3 en zona de 13 px del lado libre apuntando la corrección. Abajo: distancias 3x5 contra los márgenes; los píxeles tapados por la barra se ven invertidos (calado en negativo, p. ej. `30 | 30`) | `[ 45cm << : ║ 30cm ]` (valores en vivo) |
-| **Aproximación Normal** | Distancia de fondo entre $50\text{ cm}$ y $150\text{ cm}$ | Distancia en cm + doble chevrón gráfico `^^` subiendo (scroll rápido `/4`) | `«   120 cm   »` |
-| **Precaución / Alerta**| Distancia de fondo entre $10\text{ cm}$ y $50\text{ cm}$ | Scroll ralentizado (`/8`) y parpadeo de brillo en Alerta ($\le 20\text{ cm}$) | `«   30 cm   »` |
+| **Alineación Lateral** | Ambos sensores laterales $\le 50\text{ cm}$ (+ histéresis 2 cm) | Arriba: barra de progreso sólida desde el centro a toda altura (filas 0–7, largo = magnitud del desvío); en desvío (> `umbral_desvio_chev`, histéresis 1 cm) doble-chevrón 3x5 del lado libre a la altura de los dígitos (filas 1–5), en el hueco entre centro y número, apuntando la corrección. Abajo: distancias 3x5 centradas verticalmente (filas 1–5) contra los márgenes; los píxeles tapados por la barra se ven invertidos (calado en negativo, p. ej. `30 | 30`) | `[ 45cm << : ║ 30cm ]` (valores en vivo) |
+| **Aproximación Normal** | Distancia de fondo entre $50\text{ cm}$ y $150\text{ cm}$ | Distancia 3x5 a la izq + chevron `^` 7 px a la der con scroll `/4` + barra de progreso L→R (vacía en inicio, llena en stop; cala en negativo lo que tapa) | `«   120 cm   »` |
+| **Precaución / Alerta**| Distancia de fondo entre $10\text{ cm}$ y $50\text{ cm}$ | Idem anterior con scroll ralentizado (`/8`) y parpadeo de brillo en Alerta ($\le 20\text{ cm}$, 12↔7 como en STOP pero sin inversión) | `«   30 cm   »` |
 | **STOP Crítico** | Distancia de fondo $\le 10\text{ cm}$ | Texto **`STOP`** con inversión fija y parpadeo de brillo (12 ↔ 7) | `[  S T O P  ]` |
 | **Peligro Poste Lateral** | Algún lateral $\le 15\text{ cm}$ (estando en alineación, con switch activado) | Alterna pantalla de alineación con **`STOP`** invertido fijo (500 ms cada una) | `[  S T O P  ]` / valores en vivo |
 | **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a prompt **`READY_`** (sin alertas, brillo máximo) | `[   R E A D Y   ]` |
-| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ | Texto **`FAIL`** invertido fijo a intensidad 12, sin parpadeo (inequívoco; conserva temporizadores) | `[  F A I L  ]` |
+| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ (sin eco: sensor tapado o fuera de alcance) | Igual que reposo: prompt **`READY_`** (conserva temporizadores, no congela inactividad) | `[   R E A D Y   ]` |
 
-> La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4` y `/8` de la tabla están calculadas sobre esa base. Los dígitos 3x5 de alineación y las flechas `^v` son gráficos dibujados con `it.line`, no fuente.
+> La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4` y `/8` de la tabla están calculadas sobre esa base. Los gráficos (dígitos 3x5, chevrones `^v<>`) son dibujados con `it.line`, no fuente.
 
 ### Precedencia de estados (orden de evaluación en el `lambda`)
 
+0. Lectura inválida → `READY_` como reposo (conserva temporizadores).
 1. Arranque con auto estacionado → `READY`.
 2. Retroceso (solo si **no** hay presencia lateral).
-3. **Alineación lateral: exclusiva y prioritaria** — si ambos laterales detectan el auto, se muestra alineación aunque el fondo esté en zona STOP o aproximación.
+3. **Alineación lateral: exclusiva y prioritaria** — si ambos laterales detectan el auto, se muestra alineación aunque el fondo esté en zona STOP o aproximación. Incluye sub-fase **Peligro Poste** (alterna con `STOP` invertido).
 4. STOP / inactividad post-STOP.
 5. Aproximación por distancia de fondo.
 6. Reposo.
@@ -143,11 +144,11 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 
 | Síntoma | Causa probable | Acción |
 | :--- | :--- | :--- |
-| `[  F A I L  ]` permanente | Echo fondo sin señal o auto fuera de alcance (> 2 m) | Revisar cableado/divisor de GPIO12, `esphome logs parking.yaml` |
+| Fondo sin respuesta (siempre `READY_`) | Echo fondo sin señal o fuera de alcance (> 2 m) | Revisar cableado/divisor de GPIO12, `esphome logs parking.yaml --device /dev/ttyUSB0` |
 | Texto espejado o rotado | Orden de encadenado DOUT→DIN invertido | Probar `reverse_enable`, `rotate_chip` o `flip_x` |
 | Brillo bajo / flicker | Caída de tensión con 4 chips a 3.3 V o cable UTP muy largo | Level-converter, alimentar matriz con 5 V dedicados |
 | No aparece el AP | Bootloop o falta de alimentación | Verificar pines de strapping (GPIO0/2/15) y fuente 5 V |
-| Barra lateral inestable | Crosstalk o umbral lateral muy alto | Verificar round-robin en logs, bajar `umbral_lateral` |
+| Barra de progreso lateral inestable | Crosstalk o umbral lateral muy alto | Verificar round-robin en logs, bajar `umbral_lateral` |
 | No sale de STOP a READY | Movimiento/vibración reinicia el temporizador o tiempo alto | Subir el auto a punto muerto, bajar `tiempo_inactividad_stop` |
 | `« -- cm »` o valores fijos | Sensor colgado o mediana sin muestras nuevas | Revisar trigger correspondiente, reiniciar el NodeMCU |
 
@@ -158,7 +159,7 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 1. **Requisitos Previos:** Tener instalado **ESPHome** mediante CLI o Docker.
 2. **Archivos Necesarios:**
 * Archivo de configuración: `parking.yaml`.
-* Fuente tipográfica bitmap: El archivo **`spleen-5x8.bdf`** debe estar en la misma carpeta que el archivo `.yaml` (solo se cargan los glifos `READYSTOPFIL0123456789 _` para ahorrar RAM; chevrones `^v` y dígitos 3x5 son gráficos dibujados con `it.line`, no fuente).
+* Fuente tipográfica bitmap: El archivo **`spleen-5x8.bdf`** debe estar en la misma carpeta que el archivo `.yaml` (solo se cargan los glifos `READYSTOP0123456789 _` para ahorrar RAM; chevrones `^v` y dígitos 3x5 son gráficos dibujados con `it.line`, no fuente).
 
 
 3. **Compilación y Flasheo Inicial:**
@@ -174,4 +175,4 @@ El equipo sale de fábrica sin WiFi válido, así que levanta el Punto de Acceso
 Puedes conectarte desde cualquier teléfono o PC a `http://garage.local` (o a `http://192.168.4.1` en modo AP) para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
 
 5. **Verificación de Funcionamiento:**
-Al energizar debe mostrar `READY` fijo. Acerca una mano al sensor de fondo: la web debe mostrar la distancia bajando en cm y la matriz el número con chevrones `^^` subiendo; al alejarla, chevrones `vv` bajando; a $\le 10\text{ cm}$ sostenidos, `STOP` invertido parpadeante. Con `esphome logs parking.yaml` puedes ver el estado interno en tiempo real.
+Al energizar debe mostrar el prompt `READY_` (con cursor parpadeante; si no hay eco, igual: sin estado de fallo dedicado). Acerca una mano al sensor de fondo: la web debe mostrar la distancia bajando en cm y la matriz la barra de progreso L→R con dígitos 3x5 y chevrón `^` subiendo; al alejarla, chevrones `vv` bajando; a $\le 10\text{ cm}$ sostenidos, `STOP` invertido parpadeante. Con `esphome logs parking.yaml --device /dev/ttyUSB0` (ajusta el puerto) puedes ver el estado interno en tiempo real.

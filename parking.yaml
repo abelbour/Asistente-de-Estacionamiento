@@ -2,11 +2,6 @@ esphome:
   # El nombre define la dirección mDNS: http://garage.local (cuando está en la red del hogar)
   name: garage
   friendly_name: Asistente de Estacionamiento Autónomo
-  on_boot:
-    priority: -100
-    then:
-      - lambda: |-
-          id(flag_inicio) = true;
 
 esp8266:
   board: nodemcuv2
@@ -36,7 +31,7 @@ ota:
 font:
   - file: "spleen-5x8.bdf"
     id: font_bdf
-    glyphs: "READYSTOPFIL0123456789 _"
+    glyphs: "READYSTOP0123456789 _"
 
 # Variables Globales de Estado Interno
 globals:
@@ -257,11 +252,7 @@ display:
         }
       };
 
-      // Chevrones gráficos 5x3 (sin fuente): ^ hacia arriba, v hacia abajo
-      auto chevron_up = [&](int x, int y) {
-        it.line(x, y + 2, x + 2, y);
-        it.line(x + 2, y, x + 4, y + 2);
-      };
+      // Chevron gráfico 5x3 (sin fuente): v hacia abajo (retroceso)
       auto chevron_down = [&](int x, int y) {
         it.line(x, y, x + 2, y + 2);
         it.line(x + 2, y + 2, x + 4, y);
@@ -300,22 +291,43 @@ display:
       };
       auto draw_num35 = [&](int x, int y, int n) {
         if (n < 0) n = 0;
-        if (n > 99) n = 99;
-        if (n >= 10) {
+        if (n > 999) n = 999;
+        if (n >= 100) {
+          draw_digit35(x, y, n / 100);
+          draw_digit35(x + 4, y, (n / 10) % 10);
+          draw_digit35(x + 8, y, n % 10);
+        } else if (n >= 10) {
           draw_digit35(x, y, n / 10);
           draw_digit35(x + 4, y, n % 10);
         } else {
           draw_digit35(x, y, n);
         }
       };
-      // Mini-chevrones 2x3 para la zona superior (filas 0-2): > hacia derecha, < hacia izquierda
+      // Chevron ^ de 7x4 para aproximación (bit 6 = col izq), con calado como dígitos
+      static const uint8_t CHEV7[4] = {0b0001000, 0b0010100, 0b0100010, 0b1000001};
+      auto draw_chev7 = [&](int x, int y) {
+        for (int r = 0; r < 4; r++) {
+          for (int c = 0; c < 7; c++) {
+            int px = x + c, py = y + r;
+            if (py < 0 || py > 7) continue;
+            if (CHEV7[r] & (1 << (6 - c))) {
+              if (px >= carve_x0 && px <= carve_x1) {
+                it.line(px, py, px, py, COLOR_OFF);
+              } else {
+                it.line(px, py, px, py);
+              }
+            }
+          }
+        }
+      };
+      // Chevrones 3x5 a la altura de los dígitos: > hacia derecha, < hacia izquierda
       auto chevron_right = [&](int x, int y) {
-        it.line(x, y, x + 1, y + 1);
-        it.line(x + 1, y + 1, x, y + 2);
+        it.line(x, y, x + 2, y + 2);
+        it.line(x + 2, y + 2, x, y + 4);
       };
       auto chevron_left = [&](int x, int y) {
-        it.line(x + 1, y, x, y + 1);
-        it.line(x, y + 1, x + 1, y + 2);
+        it.line(x + 2, y, x, y + 2);
+        it.line(x, y + 2, x + 2, y + 4);
       };
 
       // Prompt retro: READY_ con guion parpadeante (6 glifos x 5px = x 1..30), brillo máximo
@@ -331,26 +343,36 @@ display:
       float izq = id(sensor_izq).state;
       float der = id(sensor_der).state;
 
-      // Lectura inválida: FAIL invertido fijo a intensidad 12, sin parpadeo.
+      // Lectura inválida: se muestra como reposo (sin estado de fallo dedicado).
       // No tocar temporizadores ni distancia previa, no congelar variables.
       bool fondo_valido = (!isnan(fondo) && fondo > 0.0);
       if (!fondo_valido) {
-        it.invert_on_off(true);
-        it.set_intensity(12);
-        it.print(6, 0, id(font_bdf), "FAIL");
-        publish_modo("Sensor desconectado / Sin lectura");
-        publish_pantalla("[  F A I L  ]");
+        print_ready_prompt();
+
+        publish_modo("En Espera / Sistema Listo");
+        publish_pantalla("[   R E A D Y   ]");
         return;
       }
 
-      // Histéresis de 2 cm en todos los umbrales (evita parpadeo de estados en las fronteras):
-      // se entra al estado con el umbral nominal y se sale recién con umbral + margen.
+      // Histéresis de 2 cm en umbrales de fondo y laterales (evita parpadeo en fronteras):
+      // se entra con el umbral nominal y se sale recién con umbral + margen.
       static const float HIST_CM = 2.0;
       static bool h_stop = false;
       static bool h_alerta = false;
       static bool h_prec = false;
       static bool h_ini = false;
       static bool h_lat = false;
+
+      // Entra con v <= lim, sale con v > lim + HIST_CM
+      auto hyst_le = [&](bool &s, float v, float lim) {
+        if (s) s = (v <= lim + HIST_CM);
+        else s = (v <= lim);
+      };
+      // Entra con v > lim, sale con v < lim - 1 (para desvíos)
+      auto hyst_gt = [&](bool &s, float v, float lim) {
+        if (s) s = !(v < lim - 1.0);
+        else s = (v > lim);
+      };
 
       // Validación de alineación: AMBOS sensores deben detectar el auto <= umbral (+ histéresis si ya activo)
       float lim_lat = id(umbral_lateral).state + (h_lat ? HIST_CM : 0.0);
@@ -359,10 +381,20 @@ display:
       bool pres_lateral = auto_lat_izq && auto_lat_der;
       h_lat = pres_lateral;
 
-      h_stop = (fondo <= id(umbral_stop).state + (h_stop ? HIST_CM : 0.0));
-      h_alerta = (fondo <= id(umbral_alerta).state + (h_alerta ? HIST_CM : 0.0));
-      h_prec = (fondo <= id(umbral_precaucion).state + (h_prec ? HIST_CM : 0.0));
-      h_ini = (fondo <= id(umbral_inicio).state + (h_ini ? HIST_CM : 0.0));
+      hyst_le(h_stop, fondo, id(umbral_stop).state);
+      hyst_le(h_alerta, fondo, id(umbral_alerta).state);
+      hyst_le(h_prec, fondo, id(umbral_precaucion).state);
+      hyst_le(h_ini, fondo, id(umbral_inicio).state);
+
+      // Banderas de la rama lateral evaluadas siempre (evita estados rancios de un frame).
+      // Solo se usan con pres_lateral (ambos válidos), así que el NaN no las contamina.
+      static bool h_poste = false;
+      static bool h_dev_der = false;
+      static bool h_dev_izq = false;
+      float lat_min = (izq < der) ? izq : der;
+      hyst_le(h_poste, lat_min, id(umbral_poste).state);
+      hyst_gt(h_dev_der, izq - der, id(umbral_desvio_chev).state);
+      hyst_gt(h_dev_izq, der - izq, id(umbral_desvio_chev).state);
 
       // Evaluación de movimiento y marcha atrás
       float prev = id(distancia_fondo_previa);
@@ -386,6 +418,9 @@ display:
 
       // 1. EVALUACIÓN DE ARRANQUE CON AUTO ESTACIONADO
       if (id(flag_inicio)) {
+        // Siembra la referencia para no disparar un falso retroceso en el primer frame
+        id(distancia_fondo_previa) = fondo;
+        retrocediendo = false;
         if (fondo <= id(umbral_alerta).state) {
           id(auto_estacionado_inicio) = true;
         }
@@ -420,12 +455,7 @@ display:
 
       // 4. ESTADO ALINEACIÓN LATERAL (matriz dividida: indicador arriba, distancias abajo)
       if (pres_lateral) {
-        // Peligro de poste: algún lateral <= umbral (histéresis 2 cm).
-        // Alterna la pantalla de alineación con STOP invertido fijo.
-        static bool h_poste = false;
-        float lim_poste = id(umbral_poste).state;
-        if (h_poste) h_poste = (izq <= lim_poste + HIST_CM || der <= lim_poste + HIST_CM);
-        else h_poste = (izq <= lim_poste || der <= lim_poste);
+        // Peligro de poste (h_poste se evalúa siempre arriba): alterna con STOP invertido fijo.
 
         if (id(alerta_poste_on) && h_poste && ((frame_counter / 5) % 2 == 1)) {
           it.invert_on_off(true);
@@ -440,15 +470,6 @@ display:
         it.set_intensity(15);
 
         float dif_mm = (izq - der) * 10.0;
-        float lim_dev = id(umbral_desvio_chev).state;
-
-        // Desvío significativo con histéresis de 1 cm (la presencia lateral ya es h_lat)
-        static bool h_dev_der = false;
-        static bool h_dev_izq = false;
-        if (h_dev_der) h_dev_der = ((izq - der) > lim_dev - 1.0);
-        else h_dev_der = ((izq - der) > lim_dev);
-        if (h_dev_izq) h_dev_izq = ((der - izq) > lim_dev - 1.0);
-        else h_dev_izq = ((der - izq) > lim_dev);
 
         // Distancias (primero: la barra las recorta al taparlas)
         int ni = (int)izq;
@@ -470,36 +491,29 @@ display:
         carve_x0 = bar_x0;
         carve_x1 = bar_x1;
 
-        // Ticks fijos de límite del portón (1px ancho x 2px alto, arriba);
-        // el del lado contrario al desvío se reemplaza por el doble-chevrón (corrección).
-        if (!h_dev_der) {
-          it.vertical_line(0, 0, 2);
-        } else {
-          // Pegado a DERECHA: <<< arriba-izquierda en zona de 13 px (corrección).
-          // Triple chevrón 2x3 en marcha hacia el borde.
-          int slide = (frame_counter / 6) % 2;
-          chevron_left(4 - slide, 0);
-          chevron_left(7 - slide, 0);
-          chevron_left(10 - slide, 0);
+        // Chevrones de corrección 3x5 a la altura de los dígitos (filas 1-5),
+        // en el hueco entre el centro y el número, del lado libre. Sin ticks.
+        int slide = (frame_counter / 6) % 2;
+        if (h_dev_der) {
+          // Pegado a DERECHA: << a la izquierda (corregir a la izquierda)
+          chevron_left(8 - slide, 1);
+          chevron_left(11 - slide, 1);
         }
-        if (!h_dev_izq) {
-          it.vertical_line(31, 0, 2);
-        } else {
-          // Pegado a IZQUIERDA: >>> arriba-derecha en zona de 13 px (corrección).
-          int slide = (frame_counter / 6) % 2;
-          chevron_right(20 + slide, 0);
-          chevron_right(23 + slide, 0);
-          chevron_right(26 + slide, 0);
+        if (h_dev_izq) {
+          // Pegado a IZQUIERDA: >> a la derecha (corregir a la derecha)
+          chevron_right(17 + slide, 1);
+          chevron_right(20 + slide, 1);
         }
         // Barra sólida a toda altura PRIMERO; los dígitos se calan en negativo encima
         for (int x = bar_x0; x <= bar_x1; x++) {
           it.vertical_line(x, 0, 8);
         }
 
-        // Distancias contra los márgenes: fuera de la barra en ON, dentro en OFF (invertido)
-        draw_num35(0, 3, ni);
+        // Distancias contra los márgenes, centradas verticalmente (filas 1-5):
+        // fuera de la barra en ON, dentro en OFF (invertido)
+        draw_num35(0, 1, ni);
         int wd = (nd >= 10) ? 8 : 3;
-        draw_num35(32 - wd, 3, nd);
+        draw_num35(32 - wd, 1, nd);
 
         publish_modo("Alineación Lateral");
 
@@ -552,10 +566,11 @@ display:
 
         if (h_alerta) {
           publish_modo("Aproximación - Alerta");
-          if ((frame_counter / 4) % 2 == 0) {
-            it.set_intensity(15);
+          // Parpadeo como en STOP (dos niveles), sin inversión para distinguirlo
+          if ((frame_counter / 3) % 2 == 0) {
+            it.set_intensity(12);
           } else {
-            it.set_intensity(8);
+            it.set_intensity(7);
           }
         } else if (h_prec) {
           publish_modo("Aproximación - Precaución");
@@ -565,14 +580,28 @@ display:
           it.set_intensity(15);
         }
 
+        // Barra de progreso L->R según proximidad (vacía en inicio, llena en stop)
+        float u_ini = id(umbral_inicio).state;
+        float u_stop = id(umbral_stop).state;
+        float denom = u_ini - u_stop;
+        if (denom < 1.0) denom = 1.0;
+        int fill = (int)(((u_ini - fondo) / denom) * 32.0);
+        if (fill < 0) fill = 0;
+        if (fill > 32) fill = 32;
+        carve_x0 = 0;
+        carve_x1 = fill - 1;
+        for (int x = 0; x < fill; x++) {
+          it.vertical_line(x, 0, 8);
+        }
+
+        // Distancia en dígitos 3x5 a la izquierda, centrada vertical (filas 1-5)
+        int nf = (int)(fondo + 0.5);
+        draw_num35(0, 1, nf);
+
+        // Chevron ^ de 7px a la derecha, scroll arriba con velocidad por tier
         int delay_scroll = h_prec ? 8 : 4;
         int offset_y = 7 - ((frame_counter / delay_scroll) % 8);
-
-        // Chevrones gráficos hacia arriba en laterales (misma animación que retroceso, invertida)
-        chevron_up(1, offset_y);
-        chevron_up(26, offset_y);
-
-        it.printf(8, 0, id(font_bdf), "%.0f", fondo);
+        draw_chev7(24, offset_y);
 
         char buf[30];
         snprintf(buf, sizeof(buf), "«   %.0f cm   »", fondo);
