@@ -11,7 +11,7 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 ### Principales Características
 * **Zero Power Draw en Reposo:** La alimentación general de $5\text{V}$ pasa a través de un relé comandado por un sensor magnético de lámina (reed switch) ubicado en el portón del garaje. Al cerrarse el portón o no detectar el vehículo, la alimentación se interrumpe por completo.
 * **Tolerancia a Fallos de Red:** Operación autónoma en modo AP (Punto de Acceso) local. Sin retardos por desconexiones o bloqueos por fallas de Wi-Fi.
-* **Alineación Simétrica de Precisión:** Muescas estáticas centrales y barra móvil proporcional de $2\times6$ píxeles en la pantalla para evitar colisiones laterales con espejos retrovisores o columnas.
+* **Alineación Simétrica de Precisión:** Arriba ticks de límite del portón + barra de posición (el tick contrario se vuelve chevrón de corrección en desvío); abajo marca de centro fija y distancias de ambos lados en dígitos 3x5 dibujados contra los márgenes — para evitar colisiones laterales con espejos retrovisores o columnas.
 * **Respuesta Dinámica según Sentido de Marcha:** Detecta automáticamente si el vehículo está ingresando (aproximación) o saliendo (retroceso), modificando el flujo visual de la pantalla.
 * **Filtrado Peatonal:** Requiere la lectura simultánea de ambos sensores laterales para activar el modo de alineación, evitando falsas alarmas por paso de personas.
 * **Suavizado de Lecturas:** Cada HC-SR04 publica en cm (`unit_of_measurement: "cm"`) con filtro de mediana de 5 muestras y disparo secuencial por turnos (round-robin cada 70 ms: fondo → izquierda → derecha, cada sensor se mide cada 210 ms) para que ningún eco interfiera con otro.
@@ -26,14 +26,15 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 | :--- | :--- | :--- | :--- |
 | **Arranque / Reposo** | Auto estático al encender o fuera de rango | Texto fijo **`READY`** (fuente Spleen 5x8) | `[   R E A D Y   ]` |
 | **Retroceso / Salida** | Distancia de fondo aumentando ($> +1\text{ cm}$) | Doble chevrón gráfico `vv` bajando (laterales, scroll `/3`) | `[      vv      ]` |
-| **Alineación Lateral** | Ambos sensores laterales $\le 50\text{ cm}$ | Muesca central `:` + Barra móvil $2\times6\text{px}$ `║` + doble chevrón gráfico `>>`/`<<` con scroll hacia el lado | `[   ║     :       >>  ]` |
+| **Alineación Lateral** | Ambos sensores laterales $\le 50\text{ cm}$ (+ histéresis 2 cm) | Arriba: ticks de límite $1\times2\text{px}$ en bordes + barra de progreso sólida desde el centro (largo = magnitud del desvío; 5 px de alto, o 3 px si chocaría con los números); en desvío (> `umbral_desvio_chev`, histéresis 1 cm) el tick contrario se reemplaza por triple mini-chevrón 2x3 en zona de 13 px del lado libre apuntando la corrección (marcha hacia el borde). Abajo: distancias 3x5 contra los márgenes con marca de centro fija de $2\times2\text{px}$ abajo (filas 6–7, p. ej. `30 | 30`) | `[ 45cm << : ║ 30cm ]` (valores en vivo) |
 | **Aproximación Normal** | Distancia de fondo entre $50\text{ cm}$ y $150\text{ cm}$ | Distancia en cm + doble chevrón gráfico `^^` subiendo (scroll rápido `/4`) | `«   120 cm   »` |
 | **Precaución / Alerta**| Distancia de fondo entre $10\text{ cm}$ y $50\text{ cm}$ | Scroll ralentizado (`/8`) y parpadeo de brillo en Alerta ($\le 20\text{ cm}$) | `«   30 cm   »` |
 | **STOP Crítico** | Distancia de fondo $\le 10\text{ cm}$ | Texto **`STOP`** con inversión fija y parpadeo de brillo (12 ↔ 7) | `[  S T O P  ]` |
+| **Peligro Poste Lateral** | Algún lateral $\le 15\text{ cm}$ (estando en alineación, con switch activado) | Alterna pantalla de alineación con **`STOP`** invertido fijo (500 ms cada una) | `[  S T O P  ]` / valores en vivo |
 | **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a **`READY`** de bajo consumo | `[   R E A D Y   ]` |
 | **Sin lectura** | Sensor fondo `NaN` o $\le 0$ | Texto **`READY` parpadeante lento** (distinguible del `READY` fijo = sistema OK; conserva temporizadores) | `[ SIN LECTURA ]` |
 
-> La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4`, `/6` y `/8` de la tabla están calculadas sobre esa base.
+> La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4` y `/8` de la tabla están calculadas sobre esa base. Los dígitos 3x5 de alineación y las flechas `^v` son gráficos dibujados con `it.line`, no fuente.
 
 ### Precedencia de estados (orden de evaluación en el `lambda`)
 
@@ -52,12 +53,16 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 | :--- | :--- | :---: | :---: | :--- |
 | Tiempo Inactividad STOP (s) | `tiempo_inactividad_stop` | 10 s | 3–60 / 1 | Espera estático en STOP antes de pasar a `READY` |
 | Umbral Lateral (cm) | `umbral_lateral` | 50 | 10–100 / 5 | Distancia que activa cada sensor lateral |
+| Umbral Desvío Chevron (cm) | `umbral_desvio_chev` | 5 | 1–20 / 0.5 | Diferencia izq–der que dispara los chevrones de corrección (con histéresis de 1 cm) |
+| Umbral Poste Lateral (cm) | `umbral_poste` | 15 | 5–40 / 1 | Algún lateral por debajo: alterna alineación con `STOP` invertido fijo (histéresis 2 cm) |
 | Umbral Inicio (cm) | `umbral_inicio` | 150 | 50–250 / 10 | Distancia a la que empieza la aproximación (tope físico ~200 cm del HC-SR04) |
 | Umbral Precaucion (cm) | `umbral_precaucion` | 50 | 20–100 / 5 | Scroll lento de chevrones por debajo de este valor |
 | Umbral Alerta (cm) | `umbral_alerta` | 20 | 10–40 / 2 | Parpadeo de brillo + arranque estacionado por debajo de este valor |
 | Umbral STOP (cm) | `umbral_stop` | 10 | 5–20 / 1 | Zona crítica con inversión parpadeante |
 
 > Mantener coherencia: STOP < Alerta ≤ Precaución < Inicio. Valores incoherentes (p. ej. STOP > Alerta) dejan estados inalcanzables.
+
+> El switch **Alerta Poste Lateral** (web UI, activado por defecto en cada arranque) habilita o silencia la alternancia con `STOP` sin tocar el umbral. Con el switch apagado, el peligro de poste solo se ve en los números de la pantalla de alineación.
 
 > Histéresis de 2 cm en todos los umbrales (fondo y laterales): se entra al estado con el valor nominal y se sale recién con valor + 2 cm (p. ej. STOP entra a ≤ 10 y sale a > 12). Absorbe el ruido del HC-SR04 y evita parpadeo de estados en las fronteras.
 
@@ -153,7 +158,7 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 1. **Requisitos Previos:** Tener instalado **ESPHome** mediante CLI o Docker.
 2. **Archivos Necesarios:**
 * Archivo de configuración: `parking.yaml`.
-* Fuente tipográfica bitmap: El archivo **`spleen-5x8.bdf`** debe estar en la misma carpeta que el archivo `.yaml` (solo se cargan los glifos `READYSTOP0123456789 ` para ahorrar RAM; las flechas `^v<>` son gráficos dibujados con `it.line`, no fuente).
+* Fuente tipográfica bitmap: El archivo **`spleen-5x8.bdf`** debe estar en la misma carpeta que el archivo `.yaml` (solo se cargan los glifos `READYSTOP0123456789 ` para ahorrar RAM; chevrones `^v` y dígitos 3x5 son gráficos dibujados con `it.line`, no fuente).
 
 
 3. **Compilación y Flasheo Inicial:**

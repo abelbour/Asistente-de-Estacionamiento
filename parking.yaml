@@ -50,6 +50,9 @@ globals:
   - id: modo_ready_post_stop
     type: bool
     initial_value: 'false'
+  - id: alerta_poste_on
+    type: bool
+    initial_value: 'true'
 
 # Umbrales Configurables (Ajustables dinámicamente desde la interfaz Web)
 number:
@@ -70,6 +73,24 @@ number:
     min_value: 10
     max_value: 100
     step: 5
+
+  - platform: template
+    name: "Umbral Desvío Chevron (cm)"
+    id: umbral_desvio_chev
+    optimistic: true
+    initial_value: 5
+    min_value: 1
+    max_value: 20
+    step: 0.5
+
+  - platform: template
+    name: "Umbral Poste Lateral (cm)"
+    id: umbral_poste
+    optimistic: true
+    initial_value: 15
+    min_value: 5
+    max_value: 40
+    step: 1
 
   - platform: template
     name: "Umbral Inicio (cm)"
@@ -106,6 +127,17 @@ number:
     min_value: 5
     max_value: 20
     step: 1
+
+# Interruptor para activar/desactivar la alerta de poste (activada por defecto)
+switch:
+  - platform: template
+    name: "Alerta Poste Lateral"
+    id: sw_poste
+    lambda: 'return id(alerta_poste_on);'
+    turn_on_action:
+      - lambda: 'id(alerta_poste_on) = true;'
+    turn_off_action:
+      - lambda: 'id(alerta_poste_on) = false;'
 
 # Sensores Ultrasonido HC-SR04 (disparo secuencial round-robin + salida en cm)
 # Fondo: trigger en GPIO16 (salida OK) y echo en GPIO12 (con interrupciones).
@@ -229,14 +261,46 @@ display:
         it.line(x, y, x + 2, y + 2);
         it.line(x + 2, y + 2, x + 4, y);
       };
-      // Chevrones horizontales 3x5 (una punta): > hacia derecha, < hacia izquierda
+      // Dígitos 3x5 dibujados (sin fuente): 5 filas x 3 bits, bit 2 = columna izquierda
+      static const uint8_t DIG35[10][5] = {
+        {0b111, 0b101, 0b101, 0b101, 0b111}, // 0
+        {0b001, 0b001, 0b001, 0b001, 0b001}, // 1
+        {0b111, 0b001, 0b111, 0b100, 0b111}, // 2
+        {0b111, 0b001, 0b111, 0b001, 0b111}, // 3
+        {0b101, 0b101, 0b111, 0b001, 0b001}, // 4
+        {0b111, 0b100, 0b111, 0b001, 0b111}, // 5
+        {0b111, 0b100, 0b111, 0b101, 0b111}, // 6
+        {0b111, 0b001, 0b001, 0b001, 0b001}, // 7
+        {0b111, 0b101, 0b111, 0b101, 0b111}, // 8
+        {0b111, 0b101, 0b111, 0b001, 0b111}, // 9
+      };
+      auto draw_digit35 = [&](int x, int y, int d) {
+        for (int r = 0; r < 5; r++) {
+          for (int c = 0; c < 3; c++) {
+            if (DIG35[d][r] & (1 << (2 - c))) {
+              it.line(x + c, y + r, x + c, y + r);
+            }
+          }
+        }
+      };
+      auto draw_num35 = [&](int x, int y, int n) {
+        if (n < 0) n = 0;
+        if (n > 99) n = 99;
+        if (n >= 10) {
+          draw_digit35(x, y, n / 10);
+          draw_digit35(x + 4, y, n % 10);
+        } else {
+          draw_digit35(x, y, n);
+        }
+      };
+      // Mini-chevrones 2x3 para la zona superior (filas 0-2): > hacia derecha, < hacia izquierda
       auto chevron_right = [&](int x, int y) {
-        it.line(x, y, x + 2, y + 2);
-        it.line(x + 2, y + 2, x, y + 4);
+        it.line(x, y, x + 1, y + 1);
+        it.line(x + 1, y + 1, x, y + 2);
       };
       auto chevron_left = [&](int x, int y) {
-        it.line(x + 2, y, x, y + 2);
-        it.line(x, y + 2, x + 2, y + 4);
+        it.line(x + 1, y, x, y + 1);
+        it.line(x, y + 1, x + 1, y + 2);
       };
 
       float fondo = id(sensor_fondo).state;
@@ -332,42 +396,105 @@ display:
         return;
       }
 
-      // 4. ESTADO ALINEACIÓN LATERAL (Exclusivo con ambos sensores activados)
+      // 4. ESTADO ALINEACIÓN LATERAL (matriz dividida: indicador arriba, distancias abajo)
       if (pres_lateral) {
+        // Peligro de poste: algún lateral <= umbral (histéresis 2 cm).
+        // Alterna la pantalla de alineación con STOP invertido fijo.
+        static bool h_poste = false;
+        float lim_poste = id(umbral_poste).state;
+        if (h_poste) h_poste = (izq <= lim_poste + HIST_CM || der <= lim_poste + HIST_CM);
+        else h_poste = (izq <= lim_poste || der <= lim_poste);
+
+        if (id(alerta_poste_on) && h_poste && ((frame_counter / 5) % 2 == 1)) {
+          it.invert_on_off(true);
+          it.set_intensity(12);
+          it.print(4, 0, id(font_bdf), "STOP");
+
+          publish_modo("Alineación - Peligro Poste");
+          publish_pantalla("[  S T O P  ]");
+          return;
+        }
+
         it.set_intensity(15);
 
-        // Muesca central 1px arriba (fila 0) y 1px abajo (fila 7) en cols 15 y 16
-        it.vertical_line(15, 0, 1);
-        it.vertical_line(16, 0, 1);
-        it.vertical_line(15, 7, 1);
-        it.vertical_line(16, 7, 1);
-
-        // Barra móvil (2px ancho x 6px alto, filas 1 a 6)
         float dif_mm = (izq - der) * 10.0;
+        float lim_dev = id(umbral_desvio_chev).state;
+
+        // Desvío significativo con histéresis de 1 cm (la presencia lateral ya es h_lat)
+        static bool h_dev_der = false;
+        static bool h_dev_izq = false;
+        if (h_dev_der) h_dev_der = ((izq - der) > lim_dev - 1.0);
+        else h_dev_der = ((izq - der) > lim_dev);
+        if (h_dev_izq) h_dev_izq = ((der - izq) > lim_dev - 1.0);
+        else h_dev_izq = ((der - izq) > lim_dev);
+
+        // Distancias (se calculan primero: definen la colisión con el indicador)
+        int ni = (int)izq;
+        int nd = (int)der;
+        if (ni < 0) ni = 0;
+        if (ni > 99) ni = 99;
+        if (nd < 0) nd = 0;
+        if (nd > 99) nd = 99;
+        int wl = (ni >= 10) ? 8 : 3;
+        int wr = (nd >= 10) ? 8 : 3;
+
+        // Indicador de posición: barra de progreso sólida desde el centro.
+        // 5px de alto si no colisiona con los números, 3px si sí. Siempre arriba.
+        bool centrado = (!h_dev_der && !h_dev_izq);
         int pos_x = 15 + (int)(dif_mm / 20.0);
         if (pos_x < 0) pos_x = 0;
-        if (pos_x > 30) pos_x = 30;
+        if (pos_x > 31) pos_x = 31;
+        int bar_x0, bar_x1;
+        if (centrado) { bar_x0 = 15; bar_x1 = 16; }
+        else if (pos_x > 16) { bar_x0 = 16; bar_x1 = pos_x; }
+        else { bar_x0 = pos_x; bar_x1 = 15; }
+        int bar_h = 5;
+        if (bar_x0 < wl || bar_x1 >= 32 - wr) bar_h = 3;
 
-        it.vertical_line(pos_x, 1, 6);
-        it.vertical_line(pos_x + 1, 1, 6);
+        // Ticks fijos de límite del portón (1px ancho x 2px alto, arriba);
+        // el del lado contrario al desvío se reemplaza por el doble-chevrón (corrección).
+        if (!h_dev_der) {
+          it.vertical_line(0, 0, 2);
+        } else {
+          // Pegado a DERECHA: <<< arriba-izquierda en zona de 13 px (corrección).
+          // Triple chevrón 2x3 en marcha hacia el borde.
+          int slide = (frame_counter / 6) % 2;
+          chevron_left(4 - slide, 0);
+          chevron_left(7 - slide, 0);
+          chevron_left(10 - slide, 0);
+        }
+        if (!h_dev_izq) {
+          it.vertical_line(31, 0, 2);
+        } else {
+          // Pegado a IZQUIERDA: >>> arriba-derecha en zona de 13 px (corrección).
+          int slide = (frame_counter / 6) % 2;
+          chevron_right(20 + slide, 0);
+          chevron_right(23 + slide, 0);
+          chevron_right(26 + slide, 0);
+        }
+        for (int x = bar_x0; x <= bar_x1; x++) {
+          it.vertical_line(x, 0, bar_h);
+        }
+
+        // Marca de centro fija abajo (2x2 px: cols 15-16, filas 6-7, alineada abajo)
+        it.vertical_line(15, 6, 2);
+        it.vertical_line(16, 6, 2);
+
+        // Distancias contra los márgenes: izq desde x=0, der terminando en x=31
+        draw_num35(0, 3, ni);
+        draw_num35(32 - wr, 3, nd);
 
         publish_modo("Alineación Lateral");
 
-        if (dif_mm > 50.0) {
-          // Doble chevrón >> gráfico con scroll hacia la derecha (y=2 centrado, cabe 24..31)
-          int slide = (frame_counter / 6) % 3;
-          chevron_right(24 + slide, 2);
-          chevron_right(27 + slide, 2);
-          publish_pantalla("[   ║     :       >>  ]");
-        } else if (dif_mm < -50.0) {
-          // Doble chevrón << gráfico con scroll hacia la izquierda (cabe 0..7)
-          int slide = (frame_counter / 6) % 3;
-          chevron_left(2 - slide, 2);
-          chevron_left(5 - slide, 2);
-          publish_pantalla("[  <<     :     ║     ]");
+        // La matriz es gráfica (ver nota); los valores en cm van a la simulación web.
+        char buf_lat[40];
+        if (h_dev_der) {
+          snprintf(buf_lat, sizeof(buf_lat), "[ %.0fcm << : ║ %.0fcm ]", izq, der);
+          publish_pantalla(std::string(buf_lat));
+        } else if (h_dev_izq) {
+          snprintf(buf_lat, sizeof(buf_lat), "[ %.0fcm >> : ║ %.0fcm ]", izq, der);
+          publish_pantalla(std::string(buf_lat));
         } else {
-          publish_pantalla("[         :           ]");
-        }
         return;
       }
 
