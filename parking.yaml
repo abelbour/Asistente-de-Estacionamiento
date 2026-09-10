@@ -27,11 +27,8 @@ ota:
   - platform: esphome
     password: "Cambiar-Clave-OTA"
 
-# Fuente Bitmap Spleen 5x8 (solo glifos usados en matriz: READY/STOP + números)
-font:
-  - file: "spleen-5x8.bdf"
-    id: font_bdf
-    glyphs: "READYSTOP0123456789 _"
+# Sin componente font: los 10 glifos 5x8 (READYSTOP_) van embebidos como tablas
+# en el lambda del display (extraídos de spleen-5x8.bdf). Nada que subir junto al YAML.
 
 # Variables Globales de Estado Interno
 globals:
@@ -281,9 +278,9 @@ display:
             if (DIG35[d][r] & (1 << (2 - c))) {
               if (px >= carve_x0 && px <= carve_x1) {
                 // Dentro de la barra: borra el píxel (calado en negativo)
-                it.line(px, y + r, px, y + r, COLOR_OFF);
+                it.draw_pixel_at(px, y + r, esphome::display::COLOR_OFF);
               } else {
-                it.line(px, y + r, px, y + r);
+                it.draw_pixel_at(px, y + r);
               }
             }
           }
@@ -312,9 +309,9 @@ display:
             if (py < 0 || py > 7) continue;
             if (CHEV7[r] & (1 << (6 - c))) {
               if (px >= carve_x0 && px <= carve_x1) {
-                it.line(px, py, px, py, COLOR_OFF);
+                it.draw_pixel_at(px, py, esphome::display::COLOR_OFF);
               } else {
-                it.line(px, py, px, py);
+                it.draw_pixel_at(px, py);
               }
             }
           }
@@ -330,12 +327,50 @@ display:
         it.line(x, y + 2, x + 2, y + 4);
       };
 
+      // Glifos 5x8 propios (extraídos de spleen-5x8.bdf; sin archivo externo).
+      // Orden: R,E,A,D,Y,S,T,O,P,_ — avance 5px, idéntico a la fuente original.
+      static const uint8_t GLYPH58[10][8] = {
+        {0b00000, 0b11100, 0b10010, 0b10010, 0b11100, 0b10010, 0b10010, 0b00000}, // R
+        {0b00000, 0b01110, 0b10000, 0b11100, 0b10000, 0b10000, 0b01110, 0b00000}, // E
+        {0b00000, 0b01100, 0b10010, 0b10010, 0b11110, 0b10010, 0b10010, 0b00000}, // A
+        {0b00000, 0b11100, 0b10010, 0b10010, 0b10010, 0b10010, 0b11100, 0b00000}, // D
+        {0b00000, 0b10010, 0b10010, 0b10010, 0b01110, 0b00010, 0b11100, 0b00000}, // Y
+        {0b00000, 0b01110, 0b10000, 0b01100, 0b00010, 0b00010, 0b11100, 0b00000}, // S
+        {0b00000, 0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00000}, // T
+        {0b00000, 0b01100, 0b10010, 0b10010, 0b10010, 0b10010, 0b01100, 0b00000}, // O
+        {0b00000, 0b11100, 0b10010, 0b10010, 0b11100, 0b10000, 0b10000, 0b00000}, // P
+        {0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11110}, // _
+      };
+      auto glyph58_idx = [&](char c) -> int {
+        switch (c) {
+          case 'R': return 0; case 'E': return 1; case 'A': return 2; case 'D': return 3;
+          case 'Y': return 4; case 'S': return 5; case 'T': return 6; case 'O': return 7;
+          case 'P': return 8; case '_': return 9;
+          default: return -1;
+        }
+      };
+      auto draw_text58 = [&](int x, int y, const char *s) {
+        int cx = x;
+        for (const char *p = s; *p; p++) {
+          int g = glyph58_idx(*p);
+          if (g >= 0) {
+            for (int r = 0; r < 8; r++) {
+              for (int c = 0; c < 5; c++) {
+                if (GLYPH58[g][r] & (1 << (4 - c))) {
+                  it.draw_pixel_at(cx + c, y + r);
+                }
+              }
+            }
+          }
+          cx += 5;
+        }
+      };
       // Prompt retro: READY_ con guion parpadeante (6 glifos x 5px = x 1..30), brillo máximo
       auto print_ready_prompt = [&]() {
         it.set_intensity(15);
-        it.print(1, 0, id(font_bdf), "READY");
+        draw_text58(1, 0, "READY");
         if ((frame_counter / 5) % 2 == 0) {
-          it.print(26, 0, id(font_bdf), "_");
+          draw_text58(26, 0, "_");
         }
       };
 
@@ -343,25 +378,18 @@ display:
       float izq = id(sensor_izq).state;
       float der = id(sensor_der).state;
 
-      // Lectura inválida: se muestra como reposo (sin estado de fallo dedicado).
-      // No tocar temporizadores ni distancia previa, no congelar variables.
-      bool fondo_valido = (!isnan(fondo) && fondo > 0.0);
-      if (!fondo_valido) {
-        print_ready_prompt();
-
-        publish_modo("En Espera / Sistema Listo");
-        publish_pantalla("[   R E A D Y   ]");
-        return;
-      }
-
-      // Histéresis de 2 cm en umbrales de fondo y laterales (evita parpadeo en fronteras):
-      // se entra con el umbral nominal y se sale recién con umbral + margen.
+      // Histéresis de 2 cm (evita parpadeo en fronteras): se entra con el nominal y se sale con + margen.
+      // Se evalúa ANTES que cualquier return: la alineación lateral es prioritaria
+      // y no depende del eco de fondo (un NaN trasero no debe tapar el guiado entre columnas).
       static const float HIST_CM = 2.0;
       static bool h_stop = false;
       static bool h_alerta = false;
       static bool h_prec = false;
       static bool h_ini = false;
       static bool h_lat = false;
+      static bool h_poste = false;
+      static bool h_dev_der = false;
+      static bool h_dev_izq = false;
 
       // Entra con v <= lim, sale con v > lim + HIST_CM
       auto hyst_le = [&](bool &s, float v, float lim) {
@@ -381,86 +409,20 @@ display:
       bool pres_lateral = auto_lat_izq && auto_lat_der;
       h_lat = pres_lateral;
 
-      hyst_le(h_stop, fondo, id(umbral_stop).state);
-      hyst_le(h_alerta, fondo, id(umbral_alerta).state);
-      hyst_le(h_prec, fondo, id(umbral_precaucion).state);
-      hyst_le(h_ini, fondo, id(umbral_inicio).state);
-
-      // Banderas de la rama lateral evaluadas siempre (evita estados rancios de un frame).
-      // Solo se usan con pres_lateral (ambos válidos), así que el NaN no las contamina.
-      static bool h_poste = false;
-      static bool h_dev_der = false;
-      static bool h_dev_izq = false;
+      // Banderas laterales: solo se usan con pres_lateral (ambos válidos), el NaN no las contamina
       float lat_min = (izq < der) ? izq : der;
       hyst_le(h_poste, lat_min, id(umbral_poste).state);
       hyst_gt(h_dev_der, izq - der, id(umbral_desvio_chev).state);
       hyst_gt(h_dev_izq, der - izq, id(umbral_desvio_chev).state);
 
-      // Evaluación de movimiento y marcha atrás
-      float prev = id(distancia_fondo_previa);
-      float diff = fabsf(fondo - prev);
-      bool en_movimiento = (diff > 1.0);
-      bool retrocediendo = (prev > 0.0) && (fondo > prev + 1.0);
-      id(distancia_fondo_previa) = fondo;
-
-      uint32_t ahora = millis();
-
-      // Gestión de temporizador de inactividad
-      if (en_movimiento) {
-        id(estatico_desde_ms) = ahora;
-        id(modo_ready_post_stop) = false;
-      } else if (id(estatico_desde_ms) == 0) {
-        id(estatico_desde_ms) = ahora;
-      }
-
-      uint32_t tiempo_estatico_ms = ahora - id(estatico_desde_ms);
-      uint32_t limite_inactividad_ms = (uint32_t)(id(tiempo_inactividad_stop).state * 1000.0);
-
-      // 1. EVALUACIÓN DE ARRANQUE CON AUTO ESTACIONADO
-      if (id(flag_inicio)) {
-        // Siembra la referencia para no disparar un falso retroceso en el primer frame
-        id(distancia_fondo_previa) = fondo;
-        retrocediendo = false;
-        if (fondo <= id(umbral_alerta).state) {
-          id(auto_estacionado_inicio) = true;
-        }
-        id(flag_inicio) = false;
-      }
-
-      if (retrocediendo || fondo < prev - 2.0) {
-        id(auto_estacionado_inicio) = false;
-      }
-
-      // 2. ESTADO AUTO ESTACIONADO AL ENCENDER -> "READY"
-      if (id(auto_estacionado_inicio) && !retrocediendo && !pres_lateral) {
-        print_ready_prompt();
-
-        publish_modo("En Espera / Listo (Arranque)");
-        publish_pantalla("[   R E A D Y   ]");
-        return;
-      }
-
-      // 3. ESTADO RETROCESO / ALEJAMIENTO (Chevrones gráficos hacia abajo)
-      if (retrocediendo && !pres_lateral) {
-        it.set_intensity(15);
-
-        int offset_y = (frame_counter / 3) % 8;
-        chevron_down(1, offset_y);
-        chevron_down(26, offset_y);
-
-        publish_modo("Retroceso / Salida");
-        publish_pantalla("[      vv      ]");
-        return;
-      }
-
-      // 4. ESTADO ALINEACIÓN LATERAL (matriz dividida: indicador arriba, distancias abajo)
+      // 1. ESTADO ALINEACIÓN LATERAL (prioritario: no depende del fondo)
       if (pres_lateral) {
-        // Peligro de poste (h_poste se evalúa siempre arriba): alterna con STOP invertido fijo.
+        // Peligro de poste: alterna con STOP invertido fijo.
 
         if (id(alerta_poste_on) && h_poste && ((frame_counter / 5) % 2 == 1)) {
           it.invert_on_off(true);
           it.set_intensity(12);
-          it.print(4, 0, id(font_bdf), "STOP");
+          draw_text58(4, 0, "STOP");
 
           publish_modo("Alineación - Peligro Poste");
           publish_pantalla("[  S T O P  ]");
@@ -532,6 +494,80 @@ display:
         return;
       }
 
+      // Lectura inválida: se muestra como reposo (sin estado de fallo dedicado).
+      // No tocar temporizadores ni distancia previa, no congelar variables.
+      bool fondo_valido = (!isnan(fondo) && fondo > 0.0);
+      if (!fondo_valido) {
+        print_ready_prompt();
+
+        publish_modo("En Espera / Sistema Listo");
+        publish_pantalla("[   R E A D Y   ]");
+        return;
+      }
+
+      // Flags de fondo (requieren lectura válida; lo lateral ya se evaluó arriba)
+      hyst_le(h_stop, fondo, id(umbral_stop).state);
+      hyst_le(h_alerta, fondo, id(umbral_alerta).state);
+      hyst_le(h_prec, fondo, id(umbral_precaucion).state);
+      hyst_le(h_ini, fondo, id(umbral_inicio).state);
+
+      // Evaluación de movimiento y marcha atrás
+      float prev = id(distancia_fondo_previa);
+      float diff = fabsf(fondo - prev);
+      bool en_movimiento = (diff > 1.0);
+      bool retrocediendo = (prev > 0.0) && (fondo > prev + 1.0);
+      id(distancia_fondo_previa) = fondo;
+
+      uint32_t ahora = millis();
+
+      // Gestión de temporizador de inactividad
+      if (en_movimiento) {
+        id(estatico_desde_ms) = ahora;
+        id(modo_ready_post_stop) = false;
+      } else if (id(estatico_desde_ms) == 0) {
+        id(estatico_desde_ms) = ahora;
+      }
+
+      uint32_t tiempo_estatico_ms = ahora - id(estatico_desde_ms);
+      uint32_t limite_inactividad_ms = (uint32_t)(id(tiempo_inactividad_stop).state * 1000.0);
+
+      // 2. EVALUACIÓN DE ARRANQUE CON AUTO ESTACIONADO
+      if (id(flag_inicio)) {
+        // Siembra la referencia para no disparar un falso retroceso en el primer frame
+        id(distancia_fondo_previa) = fondo;
+        retrocediendo = false;
+        if (fondo <= id(umbral_alerta).state) {
+          id(auto_estacionado_inicio) = true;
+        }
+        id(flag_inicio) = false;
+      }
+
+      if (retrocediendo || fondo < prev - 2.0) {
+        id(auto_estacionado_inicio) = false;
+      }
+
+      // 3. ESTADO AUTO ESTACIONADO AL ENCENDER -> "READY"
+      if (id(auto_estacionado_inicio) && !retrocediendo && !pres_lateral) {
+        print_ready_prompt();
+
+        publish_modo("En Espera / Listo (Arranque)");
+        publish_pantalla("[   R E A D Y   ]");
+        return;
+      }
+
+      // 4. ESTADO RETROCESO / ALEJAMIENTO (Chevrones gráficos hacia abajo)
+      if (retrocediendo && !pres_lateral) {
+        it.set_intensity(15);
+
+        int offset_y = (frame_counter / 3) % 8;
+        chevron_down(1, offset_y);
+        chevron_down(26, offset_y);
+
+        publish_modo("Retroceso / Salida");
+        publish_pantalla("[      vv      ]");
+        return;
+      }
+
       // 5. ESTADO STOP / TRANSICIÓN A READY POR INACTIVIDAD
       if (h_stop) {
         if (tiempo_estatico_ms >= limite_inactividad_ms) {
@@ -554,7 +590,7 @@ display:
           it.set_intensity(7);
         }
 
-        it.print(4, 0, id(font_bdf), "STOP");
+        draw_text58(4, 0, "STOP");
 
         publish_modo("Parada Crítica (STOP)");
         publish_pantalla("[  S T O P  ]");

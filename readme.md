@@ -32,21 +32,21 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 | **STOP Crítico** | Distancia de fondo $\le 10\text{ cm}$ | Texto **`STOP`** con inversión fija y parpadeo de brillo (12 ↔ 7) | `[  S T O P  ]` |
 | **Peligro Poste Lateral** | Algún lateral $\le 15\text{ cm}$ (estando en alineación, con switch activado) | Alterna pantalla de alineación con **`STOP`** invertido fijo (500 ms cada una) | `[  S T O P  ]` / valores en vivo |
 | **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a prompt **`READY_`** (sin alertas, brillo máximo) | `[   R E A D Y   ]` |
-| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ (sin eco: sensor tapado o fuera de alcance) | Igual que reposo: prompt **`READY_`** (conserva temporizadores, no congela inactividad) | `[   R E A D Y   ]` |
+| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ **y** sin presencia lateral (sin eco: sensor tapado o fuera de alcance) | Igual que reposo: prompt **`READY_`** (conserva temporizadores, no congela inactividad) | `[   R E A D Y   ]` |
 
 > La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4` y `/8` de la tabla están calculadas sobre esa base. Los gráficos (dígitos 3x5, chevrones `^v<>`) son dibujados con `it.line`, no fuente.
 
 ### Precedencia de estados (orden de evaluación en el `lambda`)
 
-0. Lectura inválida → `READY_` como reposo (conserva temporizadores).
-1. Arranque con auto estacionado → `READY`.
-2. Retroceso (solo si **no** hay presencia lateral).
-3. **Alineación lateral: exclusiva y prioritaria** — si ambos laterales detectan el auto, se muestra alineación aunque el fondo esté en zona STOP o aproximación. Incluye sub-fase **Peligro Poste** (alterna con `STOP` invertido).
-4. STOP / inactividad post-STOP.
-5. Aproximación por distancia de fondo.
-6. Reposo.
+1. Alineación lateral (no depende del eco de fondo: prioritaria absoluta, con sub-fase Poste).
+2. Lectura inválida de fondo → `READY_` como reposo (solo si no hay presencia lateral).
+3. Arranque con auto estacionado → `READY`.
+4. Retroceso (solo si **no** hay presencia lateral).
+5. STOP / inactividad post-STOP.
+6. Aproximación por distancia de fondo.
+7. Reposo.
 
-> Consecuencia de seguridad: la alineación ante espejos/columnas prevalece sobre la distancia de fondo. El modo STOP solo aparece cuando los laterales están libres.
+> Consecuencia de seguridad: la alineación ante espejos/columnas prevalece sobre todo, incluso si el fondo pierde el eco (`NaN`): el guiado lateral nunca se aborta por una pérdida momentánea del rebote trasero. El modo STOP de fondo solo aparece cuando los laterales están libres.
 
 ## 🎚️ Calibración de Umbrales (interfaz web `http://192.168.4.1`)
 
@@ -158,8 +158,7 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 
 1. **Requisitos Previos:** Tener instalado **ESPHome** mediante CLI o Docker.
 2. **Archivos Necesarios:**
-* Archivo de configuración: `parking.yaml`.
-* Fuente tipográfica bitmap: El archivo **`spleen-5x8.bdf`** debe estar en la misma carpeta que el archivo `.yaml` (solo se cargan los glifos `READYSTOP0123456789 _` para ahorrar RAM; chevrones `^v` y dígitos 3x5 son gráficos dibujados con `it.line`, no fuente).
+* Archivo de configuración: `parking.yaml` (autocontenido: los 10 glifos 5x8 `READYSTOP_` van embebidos como tablas en el `lambda`, sin `font:` ni archivos `.bdf` que subir; el viejo `spleen-5x8.bdf` ya no se referencia y puede borrarse del proyecto).
 
 
 3. **Compilación y Flasheo Inicial:**
