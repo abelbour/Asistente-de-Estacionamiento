@@ -5,7 +5,7 @@ esphome:
     priority: -100
     then:
       - lambda: |-
-          id(flag_inicio).value() = true;
+          id(flag_inicio) = true;
 
 esp8266:
   board: nodemcuv2
@@ -19,13 +19,19 @@ web_server:
 wifi:
   ap:
     ssid: "Asistente-Cochera-AP"
+    password: "ClaveSegura123"
 
 captive_portal:
 
-# Carga local de la fuente Bitmap TomThumb.bdf (Debe estar en la raíz del proyecto)
+ota:
+  - platform: esphome
+    password: "Cambiar-Clave-OTA"
+
+# Fuente Bitmap Spleen 5x8 (solo glifos usados en matriz: READY/STOP + números)
 font:
-  - file: "TomThumb.bdf"
+  - file: "spleen-5x8.bdf"
     id: font_bdf
+    glyphs: "READYSTOP0123456789 "
 
 # Variables Globales de Estado Interno
 globals:
@@ -71,7 +77,7 @@ number:
     optimistic: true
     initial_value: 150
     min_value: 50
-    max_value: 300
+    max_value: 250
     step: 10
 
   - platform: template
@@ -101,34 +107,71 @@ number:
     max_value: 20
     step: 1
 
-# Sensores Ultrasonido HC-SR04
+# Sensores Ultrasonido HC-SR04 (disparo secuencial round-robin + salida en cm)
+# Fondo: trigger en GPIO16 (salida OK) y echo en GPIO12 (con interrupciones).
+# GPIO16 no es apto como echo en ESP8266 (pin especial RTC sin interrupciones).
+# Los 3 sensores usan update_interval: never y se disparan por turnos (ver interval),
+# con 70 ms de separación garantizada para que ningún eco interfiera con otro.
 sensor:
   - platform: ultrasonic
-    trigger_pin: GPIO12
-    echo_pin: GPIO14
+    trigger_pin: GPIO16
+    echo_pin: GPIO12
     name: "Sensor Fondo"
     id: sensor_fondo
-    update_interval: 100ms
+    update_interval: never
+    unit_of_measurement: "cm"
+    accuracy_decimals: 0
     filters:
       - multiply: 100.0 # Conversión m a cm
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
 
   - platform: ultrasonic
-    trigger_pin: GPIO12
+    trigger_pin: GPIO0
     echo_pin: GPIO5
     name: "Sensor Izquierda"
     id: sensor_izq
-    update_interval: 100ms
+    update_interval: never
+    unit_of_measurement: "cm"
+    accuracy_decimals: 0
     filters:
       - multiply: 100.0
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
 
   - platform: ultrasonic
-    trigger_pin: GPIO12
+    trigger_pin: GPIO15
     echo_pin: GPIO4
     name: "Sensor Derecha"
     id: sensor_der
-    update_interval: 100ms
+    update_interval: never
+    unit_of_measurement: "cm"
+    accuracy_decimals: 0
     filters:
       - multiply: 100.0
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
+
+# Disparo secuencial por turnos (round-robin cada 70 ms -> cada sensor se mide cada 210 ms)
+interval:
+  - interval: 70ms
+    then:
+      - lambda: |-
+          static uint8_t turno = 0;
+          if (turno == 0) {
+            id(sensor_fondo).update();
+          } else if (turno == 1) {
+            id(sensor_izq).update();
+          } else {
+            id(sensor_der).update();
+          }
+          turno = (turno + 1) % 3;
 
 # Sensores de Texto para Simulación Web
 text_sensor:
@@ -142,87 +185,150 @@ text_sensor:
     id: texto_pantalla
     icon: "mdi:led-strip-scan"
 
-# Bus SPI y Matriz LED MAX7219
+# Bus SPI y Matriz LED MAX7219 (GPIO14 dedicado a CLK, CS en GPIO2)
 spi:
   clk_pin: GPIO14
   mosi_pin: GPIO13
 
 display:
   - platform: max7219digit
-    cs_pin: GPIO15
+    cs_pin: GPIO2
     num_chips: 4
     id: matriz_led
+    scroll_enable: false
+    update_interval: 100ms
     lambda: |-
       static int frame_counter = 0;
       frame_counter++;
 
-      // Restaurar modo normal por defecto
+      // Restaurar modo normal por defecto (STOP usa inversión parpadeante)
       it.invert_on_off(false);
+
+      // Publicar solo cuando el valor cambia (evita saturar web_server)
+      static std::string last_modo = "";
+      static std::string last_pantalla = "";
+      auto publish_modo = [&](const std::string &m) {
+        if (m != last_modo) {
+          last_modo = m;
+          id(modo_sistema).publish_state(m);
+        }
+      };
+      auto publish_pantalla = [&](const std::string &t) {
+        if (t != last_pantalla) {
+          last_pantalla = t;
+          id(texto_pantalla).publish_state(t);
+        }
+      };
+
+      // Chevrones gráficos 5x3 (sin fuente): ^ hacia arriba, v hacia abajo
+      auto chevron_up = [&](int x, int y) {
+        it.line(x, y + 2, x + 2, y);
+        it.line(x + 2, y, x + 4, y + 2);
+      };
+      auto chevron_down = [&](int x, int y) {
+        it.line(x, y, x + 2, y + 2);
+        it.line(x + 2, y + 2, x + 4, y);
+      };
+      // Chevrones horizontales 3x5 (una punta): > hacia derecha, < hacia izquierda
+      auto chevron_right = [&](int x, int y) {
+        it.line(x, y, x + 2, y + 2);
+        it.line(x + 2, y + 2, x, y + 4);
+      };
+      auto chevron_left = [&](int x, int y) {
+        it.line(x + 2, y, x, y + 2);
+        it.line(x, y + 2, x + 2, y + 4);
+      };
 
       float fondo = id(sensor_fondo).state;
       float izq = id(sensor_izq).state;
       float der = id(sensor_der).state;
 
-      if (isnan(fondo) || fondo <= 0.0) return;
+      // Lectura inválida: READY parpadeante lento (distinguible del READY fijo = sistema OK).
+      // No tocar temporizadores ni distancia previa, no congelar variables.
+      bool fondo_valido = (!isnan(fondo) && fondo > 0.0);
+      if (!fondo_valido) {
+        it.set_intensity(8);
+        if ((frame_counter / 5) % 2 == 0) {
+          it.print(1, 0, id(font_bdf), "READY");
+        }
+        publish_modo("Sensor desconectado / Sin lectura");
+        publish_pantalla("[ SIN LECTURA ]");
+        return;
+      }
 
-      // Validación de alineación: AMBOS sensores deben detectar el auto <= umbral
-      bool auto_lat_izq = (!isnan(izq) && izq > 0.0 && izq <= id(umbral_lateral).value());
-      bool auto_lat_der = (!isnan(der) && der > 0.0 && der <= id(umbral_lateral).value());
+      // Histéresis de 2 cm en todos los umbrales (evita parpadeo de estados en las fronteras):
+      // se entra al estado con el umbral nominal y se sale recién con umbral + margen.
+      static const float HIST_CM = 2.0;
+      static bool h_stop = false;
+      static bool h_alerta = false;
+      static bool h_prec = false;
+      static bool h_ini = false;
+      static bool h_lat = false;
+
+      // Validación de alineación: AMBOS sensores deben detectar el auto <= umbral (+ histéresis si ya activo)
+      float lim_lat = id(umbral_lateral).state + (h_lat ? HIST_CM : 0.0);
+      bool auto_lat_izq = (!isnan(izq) && izq > 0.0 && izq <= lim_lat);
+      bool auto_lat_der = (!isnan(der) && der > 0.0 && der <= lim_lat);
       bool pres_lateral = auto_lat_izq && auto_lat_der;
+      h_lat = pres_lateral;
+
+      h_stop = (fondo <= id(umbral_stop).state + (h_stop ? HIST_CM : 0.0));
+      h_alerta = (fondo <= id(umbral_alerta).state + (h_alerta ? HIST_CM : 0.0));
+      h_prec = (fondo <= id(umbral_precaucion).state + (h_prec ? HIST_CM : 0.0));
+      h_ini = (fondo <= id(umbral_inicio).state + (h_ini ? HIST_CM : 0.0));
 
       // Evaluación de movimiento y marcha atrás
-      float prev = id(distancia_fondo_previa).value();
+      float prev = id(distancia_fondo_previa);
       float diff = fabsf(fondo - prev);
       bool en_movimiento = (diff > 1.0);
       bool retrocediendo = (prev > 0.0) && (fondo > prev + 1.0);
-      id(distancia_fondo_previa).value() = fondo;
+      id(distancia_fondo_previa) = fondo;
 
       uint32_t ahora = millis();
 
       // Gestión de temporizador de inactividad
       if (en_movimiento) {
-        id(estatico_desde_ms).value() = ahora;
-        id(modo_ready_post_stop).value() = false;
-      } else if (id(estatico_desde_ms).value() == 0) {
-        id(estatico_desde_ms).value() = ahora;
+        id(estatico_desde_ms) = ahora;
+        id(modo_ready_post_stop) = false;
+      } else if (id(estatico_desde_ms) == 0) {
+        id(estatico_desde_ms) = ahora;
       }
 
-      uint32_t tiempo_estatico_ms = ahora - id(estatico_desde_ms).value();
-      uint32_t limite_inactividad_ms = (uint32_t)(id(tiempo_inactividad_stop).value() * 1000.0);
+      uint32_t tiempo_estatico_ms = ahora - id(estatico_desde_ms);
+      uint32_t limite_inactividad_ms = (uint32_t)(id(tiempo_inactividad_stop).state * 1000.0);
 
       // 1. EVALUACIÓN DE ARRANQUE CON AUTO ESTACIONADO
-      if (id(flag_inicio).value()) {
-        if (fondo <= id(umbral_alerta).value()) {
-          id(auto_estacionado_inicio).value() = true;
+      if (id(flag_inicio)) {
+        if (fondo <= id(umbral_alerta).state) {
+          id(auto_estacionado_inicio) = true;
         }
-        id(flag_inicio).value() = false;
+        id(flag_inicio) = false;
       }
 
       if (retrocediendo || fondo < prev - 2.0) {
-        id(auto_estacionado_inicio).value() = false;
+        id(auto_estacionado_inicio) = false;
       }
 
       // 2. ESTADO AUTO ESTACIONADO AL ENCENDER -> "READY"
-      if (id(auto_estacionado_inicio).value() && !retrocediendo && !pres_lateral) {
+      if (id(auto_estacionado_inicio) && !retrocediendo && !pres_lateral) {
         it.set_intensity(8);
-        it.print(4, 0, id(font_bdf), "READY");
+        it.print(1, 0, id(font_bdf), "READY");
 
-        id(modo_sistema).publish_state("En Espera / Listo (Arranque)");
-        id(texto_pantalla).publish_state("[   R E A D Y   ]");
+        publish_modo("En Espera / Listo (Arranque)");
+        publish_pantalla("[   R E A D Y   ]");
         return;
       }
 
-      // 3. ESTADO RETROCESO / ALEJAMIENTO (Scroll 'v' hacia abajo)
+      // 3. ESTADO RETROCESO / ALEJAMIENTO (Chevrones gráficos hacia abajo)
       if (retrocediendo && !pres_lateral) {
         it.set_intensity(12);
 
         int offset_y = (frame_counter / 3) % 8;
-        it.draw_vh_line(0, offset_y, 3, true);
-        it.draw_vh_line(31, offset_y, 3, true);
-        it.print(12, 0, id(font_bdf), "v");
+        chevron_down(1, offset_y);
+        chevron_down(26, offset_y);
 
-        id(modo_sistema).publish_state("Retroceso / Salida");
-        id(texto_pantalla).publish_state("[       v       ]");
+        publish_modo("Retroceso / Salida");
+        publish_pantalla("[      vv      ]");
         return;
       }
 
@@ -231,10 +337,10 @@ display:
         it.set_intensity(15);
 
         // Muesca central 1px arriba (fila 0) y 1px abajo (fila 7) en cols 15 y 16
-        it.draw_vh_line(15, 0, 1, false);
-        it.draw_vh_line(16, 0, 1, false);
-        it.draw_vh_line(15, 7, 1, false);
-        it.draw_vh_line(16, 7, 1, false);
+        it.vertical_line(15, 0, 1);
+        it.vertical_line(16, 0, 1);
+        it.vertical_line(15, 7, 1);
+        it.vertical_line(16, 7, 1);
 
         // Barra móvil (2px ancho x 6px alto, filas 1 a 6)
         float dif_mm = (izq - der) * 10.0;
@@ -242,87 +348,95 @@ display:
         if (pos_x < 0) pos_x = 0;
         if (pos_x > 30) pos_x = 30;
 
-        it.draw_vh_line(pos_x, 1, 6, false);
-        it.draw_vh_line(pos_x + 1, 1, 6, false);
+        it.vertical_line(pos_x, 1, 6);
+        it.vertical_line(pos_x + 1, 1, 6);
 
-        id(modo_sistema).publish_state("Alineación Lateral");
+        publish_modo("Alineación Lateral");
 
         if (dif_mm > 50.0) {
-          it.print(24, 0, id(font_bdf), ">>");
-          id(texto_pantalla).publish_state("[   ║     :       >>  ]");
+          // Doble chevrón >> gráfico con scroll hacia la derecha (y=2 centrado, cabe 24..31)
+          int slide = (frame_counter / 6) % 3;
+          chevron_right(24 + slide, 2);
+          chevron_right(27 + slide, 2);
+          publish_pantalla("[   ║     :       >>  ]");
         } else if (dif_mm < -50.0) {
-          it.print(0, 0, id(font_bdf), "<<");
-          id(texto_pantalla).publish_state("[  <<     :     ║     ]");
+          // Doble chevrón << gráfico con scroll hacia la izquierda (cabe 0..7)
+          int slide = (frame_counter / 6) % 3;
+          chevron_left(2 - slide, 2);
+          chevron_left(5 - slide, 2);
+          publish_pantalla("[  <<     :     ║     ]");
         } else {
-          id(texto_pantalla).publish_state("[         :           ]");
+          publish_pantalla("[         :           ]");
         }
         return;
       }
 
       // 5. ESTADO STOP / TRANSICIÓN A READY POR INACTIVIDAD
-      if (fondo <= id(umbral_stop).value()) {
+      if (h_stop) {
         if (tiempo_estatico_ms >= limite_inactividad_ms) {
-          id(modo_ready_post_stop).value() = true;
+          id(modo_ready_post_stop) = true;
         }
 
-        if (id(modo_ready_post_stop).value()) {
+        if (id(modo_ready_post_stop)) {
           it.set_intensity(8);
-          it.print(4, 0, id(font_bdf), "READY");
+          it.print(1, 0, id(font_bdf), "READY");
 
-          id(modo_sistema).publish_state("Estacionado (Pausa Inactividad)");
-          id(texto_pantalla).publish_state("[   R E A D Y   ]");
+          publish_modo("Estacionado (Pausa Inactividad)");
+          publish_pantalla("[   R E A D Y   ]");
           return;
         }
 
-        it.set_intensity(15);
-        bool estado_inversion = ((frame_counter / 3) % 2 == 0);
-        it.invert_on_off(estado_inversion);
+        // STOP fijo en invertido (fondo encendido / texto apagado) con parpadeo de brillo 12 <-> 7
+        it.invert_on_off(true);
+        if ((frame_counter / 3) % 2 == 0) {
+          it.set_intensity(12);
+        } else {
+          it.set_intensity(7);
+        }
 
         it.print(4, 0, id(font_bdf), "STOP");
 
-        id(modo_sistema).publish_state("Parada Crítica (STOP)");
-        id(texto_pantalla).publish_state("[  S T O P  ]");
+        publish_modo("Parada Crítica (STOP)");
+        publish_pantalla("[  S T O P  ]");
         return;
       }
 
       // 6. ESTADO APROXIMACIÓN (Avanzando hacia la pared)
-      if (fondo <= id(umbral_inicio).value()) {
+      if (h_ini) {
 
-        if (fondo <= id(umbral_alerta).value()) {
-          id(modo_sistema).publish_state("Aproximación - Alerta");
+        if (h_alerta) {
+          publish_modo("Aproximación - Alerta");
           if ((frame_counter / 4) % 2 == 0) {
             it.set_intensity(15);
           } else {
             it.set_intensity(4);
           }
-        } else if (fondo <= id(umbral_precaucion).value()) {
-          id(modo_sistema).publish_state("Aproximación - Precaución");
+        } else if (h_prec) {
+          publish_modo("Aproximación - Precaución");
           it.set_intensity(15);
         } else {
-          id(modo_sistema).publish_state("Aproximación - Normal");
+          publish_modo("Aproximación - Normal");
           it.set_intensity(15);
         }
 
-        int delay_scroll = (fondo <= id(umbral_precaucion).value()) ? 8 : 4;
+        int delay_scroll = h_prec ? 8 : 4;
         int offset_y = 7 - ((frame_counter / delay_scroll) % 8);
 
-        it.draw_vh_line(0, offset_y, 3, true);
-        it.draw_vh_line(31, offset_y, 3, true);
+        // Chevrones gráficos hacia arriba en laterales (misma animación que retroceso, invertida)
+        chevron_up(1, offset_y);
+        chevron_up(26, offset_y);
 
         it.printf(8, 0, id(font_bdf), "%.0f", fondo);
 
         char buf[30];
         snprintf(buf, sizeof(buf), "«   %.0f cm   »", fondo);
-        id(texto_pantalla).publish_state(buf);
+        publish_pantalla(std::string(buf));
         return;
       }
 
       // 7. ESTADO REPOSO / REPAUSO GENERAL
       it.set_intensity(8);
-      it.print(4, 0, id(font_bdf), "READY");
+      it.print(1, 0, id(font_bdf), "READY");
 
-      id(modo_sistema).publish_state("En Espera / Sistema Listo");
-      id(texto_pantalla).publish_state("[   R E A D Y   ]");
-
-
-```markdown
+      publish_modo("En Espera / Sistema Listo");
+      publish_pantalla("[   R E A D Y   ]");
