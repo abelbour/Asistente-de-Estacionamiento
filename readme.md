@@ -169,8 +169,9 @@ esphome run parking.yaml
 ```
 
 
-4. **Modificaciones Posteriores:**
-Al iniciar, el dispositivo genera un Punto de Acceso Wi-Fi llamado `Asistente-Cochera-AP` (clave `ClaveSegura123`; cámbiala en la sección `wifi:` del YAML, igual que la clave `ota:`). Puedes conectarte desde cualquier teléfono o PC e ingresar a `http://192.168.4.1` para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
+4. **Primer Arranque y Red:**
+El equipo sale de fábrica sin WiFi válido, así que levanta el Punto de Acceso `Asistente-Cochera-AP` (clave `ClaveSegura123`; cámbiala en la sección `wifi:` del YAML, igual que la clave `ota:`). Conéctate desde el teléfono, abre `http://192.168.4.1` (portal cautivo) y carga tu red WiFi. Desde entonces el equipo se une a tu red y responde siempre en **`http://garage.local`** (mDNS; funciona en iPhone, macOS, Windows 10+ y Chrome en Android). Si el router no está disponible, vuelve solo al modo AP.
+Puedes conectarte desde cualquier teléfono o PC a `http://garage.local` (o a `http://192.168.4.1` en modo AP) para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
 
 5. **Verificación de Funcionamiento:**
 Al energizar debe mostrar `READY` fijo. Acerca una mano al sensor de fondo: la web debe mostrar la distancia bajando en cm y la matriz el número con chevrones `^^` subiendo; al alejarla, chevrones `vv` bajando; a $\le 10\text{ cm}$ sostenidos, `STOP` invertido parpadeante. Con `esphome logs parking.yaml` puedes ver el estado interno en tiempo real.
