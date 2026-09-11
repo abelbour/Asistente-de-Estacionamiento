@@ -76,9 +76,9 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 2. **Pantalla:** Matriz de LED MAX7219 ($8\times32$ píxeles, 4 módulos).
 3. **Sensores de Distancia:** 3x HC-SR04 (Ultrasonido).
 4. **Lásers de Posición:** 3x Módulos de Diodo Láser de $5\text{V}$.
-5. **Control de Energía:** Módulo Relé de $5\text{V}$ (Canal Normal Cerrado/Abierto según reed switch).
+5. **Control de Energía:** Relé electromecánico de $5\text{ V}$ (pelado, sin módulo: bobina ~70 mA en serie directa con el reed) + diodo flyback 1N4148 en la bobina + bulk 470 µF y 100 nF en el riel del nodo fondo.
 6. **Protección Lógica:** Divisores de tensión ($1.5\text{ k}\Omega$ y $1.8\text{ k}\Omega$) para adaptar las salidas de $5\text{V}$ del `Echo` de los HC-SR04 al nivel de $3.3\text{V}$ del ESP8266.
-7. **Infraestructura de Cableado:** Cable de red UTP Cat 5e de cobre.
+7. **Infraestructura de Cableado:** Cable de red UTP Cat 5e de cobre (un solo tendido fondo→portón, 7/8 hilos usados).
 
 ### Asignación de Pines (ESP8266 NodeMCU)
 
@@ -99,9 +99,29 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 
 ```
 
+### ⚡ Arquitectura de Energía (corte total, $0\text{ W}$ en reposo)
+
+Topología: fuente $5\text{ V}$/2 A y relé junto al MCU en el **fondo**; en el **portón** solo laterales + reed (nodo tonto). El reed va en serie con la bobina (~70 mA, dentro de su rating típico 0.5 A, sin transistor ni GPIO):
+
+```text
+FONDO                                              PORTÓN
+fuente 5V ──┬──► COM relé
+            ├──► bobina(+)   bobina(-)
+
+──► Par4 ──► reed ──► GND (nodo portón)
+            └──► NO ──► riel 5V nodo fondo (MCU/display/fondo)
+                     └──► Par1 ──► VCC laterales
+```
+
+* **Portón abierto** (imán junto al reed) → bobina energizada → NO cierra → vive todo (laterales incluidos).
+* **Portón cerrado** → reed abre → muere bobina, laterales y fondo. Consumo en reposo: **cero real** (el reed es un contacto pasivo).
+* **Diodo flyback 1N4148** en la bobina (cátodo a bobina+, ánodo a bobina−): al abrir el reed, la bobina genera un pico de decenas de volt ($V = L \cdot di/dt$) que pica/suelda los contactos y mete resets al ESP8266 por el mismo UTP. El diodo lo recorta a ~5.7 V. No es opcional aunque sean "solo" 70 mA: el pico no depende de la corriente nominal.
+* **Bulk 470 µF + 100 nF** en el riel del nodo fondo (patas cortas): cabalgan el rebote de contactos al energizar y las ráfagas WiFi del ESP8266 (~400 mA). Una fuente de 2 A sobra en promedio pero no responde en microsegundos; para eso están los capacitores locales.
+* Boot de 2–4 s al abrir el portón antes del `READY_` (el auto igual espera al portón).
+
 ### Nota sobre relé y láseres (lógica cableada, sin software)
 
-El módulo relé de $5\text{V}$ y los 3 diodos láser funcionan con lógica cableada directa a la alimentación ($5\text{V}$) comandada por el interruptor magnético (*reed switch*) del portón, sin requerir intervención por software ni pines de datos del ESP8266. Al abrirse el portón se energiza el sistema completo; al cerrarse o salir el vehículo se corta por completo ($0\text{ W}$ en reposo).
+Los 3 diodos láser funcionan con lógica cableada directa a la alimentación ($5\text{V}$) comandada por el mismo riel conmutado, sin requerir intervención por software ni pines de datos del ESP8266.
 
 ### Adaptación de Voltaje (Divisor Resistivo por PIN Echo)
 
@@ -120,30 +140,35 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 
 > El echo del sensor de fondo va a **GPIO12** y no a GPIO16: en ESP8266 el GPIO16 es un pin especial RTC sin soporte de interrupciones (el componente ultrasonic mide el pulso de echo por interrupción) y tampoco sirve como entrada fiable. Como salida de trigger, GPIO16 funciona sin problema.
 
-### Distribución de Pares en Cable UTP Cat 5e
+### Distribución de Pares en Cable UTP Cat 5e (un tendido fondo→portón, 7/8 hilos)
 
 ```text
- [ Par 1: Azul / Blanco-Azul ]     ──► Alimentación (+5V VCC / GND)
- [ Par 2: Naranja / Blanco-Naranja] ──► Bus SPI MAX7219 (DIN / CS)
- [ Par 3: Verde / Blanco-Verde ]   ──► Líneas de Trigger dedicadas (GPIO16/0/15)
- [ Par 4: Marrón / Blanco-Marrón ] ──► Líneas de Echo filtradas (GPIO12/5/4)
+ [ Par 1: Azul / Blanco-Azul ]     ──► 5V conmutado + GND (potencia laterales)
+ [ Par 2: Naranja / Blanco-Naranja] ──► Trig Izq (GPIO0) + Echo Izq (GPIO5)
+ [ Par 3: Verde / Blanco-Verde ]   ──► Trig Der (GPIO15) + Echo Der (GPIO4)
+ [ Par 4: Marrón / Blanco-Marrón ] ──► Retorno reed + RESERVA (o 2º GND)
 
 ```
+
+* Los divisores de echo van **atrás, junto al MCU** (protegen el GPIO donde entra la señal).
+* Los pulsos de trigger/echo por ~6 m de Cat5e no requieren cambios de timings (retardos de ns, flancos tolerables).
+* El fondo (display + MCU + sensor fondo + SPI) se cablea en corto directo, sin UTP.
 
 > Con 4 módulos encadenados a 3.3 V la doc de ESPHome advierte que puede hacer falta un level-converter si el brillo es bajo o hay flicker. Al probar en banco, si el texto sale espejado o rotado, ajustar `reverse_enable`, `rotate_chip` o `flip_x` del bloque `display:`.
 
 ### 🧰 Recomendaciones de Montaje Físico
 
-* **Matriz LED:** a la altura de los ojos del conductor y centrada con el eje del vehículo, visible con el auto en movimiento.
-* **Sensor fondo:** a la altura del paragolpe, perpendicular a la dirección de entrada, sin objetos intermedios.
-* **Sensores laterales:** a la altura de los espejos retrovisores, apuntando a los flancos del auto donde el espacio es crítico (columnas, paredes).
+* **Nodo fondo (pared de fondo):** matriz LED a la altura de los ojos del conductor y centrada con el eje del vehículo + NodeMCU + sensor fondo a la altura del paragolpe, todo en corto directo (SPI y fondo sin UTP). Prever acceso USB al NodeMCU (primer flasheo y recovery).
+* **Nodo portón:** laterales a la altura de los espejos retrovisores apuntando a los flancos + reed en el marco con imán en la hoja móvil (calibrar para contacto cerrado con portón abierto) + nada más (sin MCU ni relé ahí).
+* **Sensores multi-modo:** los módulos marcados HC-SR04 con pads R4/R5 se usan en modo clásico de 2 hilos (**pads abiertos**). No puentear R4 (I2C), R5 (UART) ni R4+R5 ("1-WIRE" single-bus): ningún modo alternativo tiene soporte nativo en ESPHome y el diseño actual los necesita en modo trigger/echo.
 * **Entorno:** evitar sol directo sobre los HC-SR04 y superficies absorbentes (telas, espuma) en la línea de medición; el ultrasonido rebota mejor en superficies duras y perpendiculares.
-* **Reed switch + relé:** imán en la hoja móvil del portón y reed en el marco, con el relé interrumpiendo los $5\text{ V}$ generales (ver nota de lógica cableada).
 
 ### 🩺 Diagnóstico Rápido
 
 | Síntoma | Causa probable | Acción |
 | :--- | :--- | :--- |
+| No enciende al abrir el portón | Reed descalibrado o bobina sin 5V | Verificar continuidad del lazo reed con multímetro, magnetismo en reed abierto |
+| Resets al cerrar el portón o en STOP | Falta diodo flyback o bulk | Verificar 1N4148 en bobina y 470 µF + 100 nF en riel fondo |
 | Fondo sin respuesta (siempre `READY_`) | Echo fondo sin señal o fuera de alcance (> 2 m) | Revisar cableado/divisor de GPIO12, `esphome logs parking.yaml --device /dev/ttyUSB0` |
 | Texto espejado o rotado | Orden de encadenado DOUT→DIN invertido | Probar `reverse_enable`, `rotate_chip` o `flip_x` |
 | Brillo bajo / flicker | Caída de tensión con 4 chips a 3.3 V o cable UTP muy largo | Level-converter, alimentar matriz con 5 V dedicados |
@@ -174,4 +199,4 @@ El YAML no trae ninguna credencial: ni WiFi ni OTA. Al primer arranque el equipo
 Puedes conectarte desde cualquier teléfono o PC a `http://garage.local` (o a `http://192.168.4.1` en modo AP) para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
 
 5. **Verificación de Funcionamiento:**
-Al energizar debe mostrar el prompt `READY_` (con cursor parpadeante; si no hay eco, igual: sin estado de fallo dedicado). Acerca una mano al sensor de fondo: la web debe mostrar la distancia bajando en cm y la matriz la barra de progreso L→R con dígitos 3x5 y chevrón `^` subiendo; al alejarla, chevrones `vv` bajando; a $\le 10\text{ cm}$ sostenidos, `STOP` invertido parpadeante. Con `esphome logs parking.yaml --device /dev/ttyUSB0` (ajusta el puerto) puedes ver el estado interno en tiempo real.
+Al energizar debe mostrar el prompt `READY_` (con cursor parpadeante; si no hay eco, igual: sin estado de fallo dedicado). En la web (`Sensor Fondo/Izquierda/Derecha`, en cm, 0 decimales, ~5 Hz por round-robin) verifica las lecturas en vivo: `Unknown` = sin eco (normal sin obstáculo), y la mediana tarda ~1 s en asentarse al mover la mano (normal, no es lag de red). Prueba de rango mínimo: mano a 5, 10, 15 y 30 cm del fondo — si a ≤10 cm lee estable, los módulos responden como clásico y el tema R4/R5 queda archivado. Prueba de potencia: con portón cerrado, multímetro en el riel = 0 V; abierto, secuencia mano→barra L→R→`STOP`. Con `esphome logs parking.yaml --device /dev/ttyUSB0` (ajusta el puerto) puedes ver el estado interno en tiempo real.
