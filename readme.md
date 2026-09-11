@@ -34,7 +34,7 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 | **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a prompt **`READY_`** (sin alertas, brillo máximo) | `[   R E A D Y   ]` |
 | **Sin lectura** | Sensor fondo `NaN` o $\le 0$ **y** sin presencia lateral (sin eco: sensor tapado o fuera de alcance) | Igual que reposo: prompt **`READY_`** (conserva temporizadores, no congela inactividad) | `[   R E A D Y   ]` |
 
-> La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4` y `/8` de la tabla están calculadas sobre esa base. Los gráficos (dígitos 3x5, chevrones `^v<>`) son dibujados con `it.line`, no fuente.
+> La matriz se refresca cada 100 ms (`update_interval`) con scroll automático desactivado (`scroll_enable: false`); las velocidades `/3`, `/4` y `/8` de la tabla están calculadas sobre esa base. Los gráficos (dígitos 3x5 y chevrones) se renderizan mediante primitivas de píxeles/mapas de bits directos (`draw_pixel_at`), sin depender de archivos de fuentes `.bdf`.
 
 ### Precedencia de estados (orden de evaluación en el `lambda`)
 
@@ -76,7 +76,7 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 2. **Pantalla:** Matriz de LED MAX7219 ($8\times32$ píxeles, 4 módulos).
 3. **Sensores de Distancia:** 3x HC-SR04 (Ultrasonido).
 4. **Lásers de Posición:** 3x Módulos de Diodo Láser de $5\text{V}$.
-5. **Control de Energía:** Relé electromecánico de $5\text{ V}$ (pelado, sin módulo: bobina ~70 mA en serie directa con el reed) + diodo flyback 1N4148 en la bobina + bulk 470 µF y 100 nF en el riel del nodo fondo.
+5. **Control de Energía:** Módulo relé HW-482 de $5\text{ V}$ (1 canal, optoacoplado, disparo LOW, bobina ~70 mA, contactos SPDT 10 A, diodo flyback incluido en placa, jumper JD-VCC de fábrica sin tocar).
 6. **Protección Lógica:** Divisores de tensión ($1.5\text{ k}\Omega$ y $1.8\text{ k}\Omega$) para adaptar las salidas de $5\text{V}$ del `Echo` de los HC-SR04 al nivel de $3.3\text{V}$ del ESP8266.
 7. **Infraestructura de Cableado:** Cable de red UTP Cat 5e de cobre (un solo tendido fondo→portón, 7/8 hilos usados).
 
@@ -101,23 +101,25 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 
 ### ⚡ Arquitectura de Energía (corte total, $0\text{ W}$ en reposo)
 
-Topología: fuente $5\text{ V}$/2 A y relé junto al MCU en el **fondo**; en el **portón** solo laterales + reed (nodo tonto). El reed va en serie con la bobina (~70 mA, dentro de su rating típico 0.5 A, sin transistor ni GPIO):
+Topología: fuente $5\text{ V}$/2 A y módulo HW-482 junto al MCU en el **fondo**; en el **portón** solo laterales + reed (nodo tonto). El reed va en serie con el VCC del módulo (por el Par4 del UTP) y el pin IN va puenteado a GND (disparo LOW permanente):
 
 ```text
 FONDO                                              PORTÓN
-fuente 5V ──┬──► COM relé
-            ├──► bobina(+)   bobina(-)
-
-──► Par4 ──► reed ──► GND (nodo portón)
+fuente 5V ──┬──► COM relé (módulo HW-482, jumper JD-VCC puesto)
+            ├──► Par4A ──► reed ──► Par4B ──► VCC módulo
+            │       (IN del módulo puenteado a GND: siempre "disparado" con VCC)
+            ├──► GND módulo
             └──► NO ──► riel 5V nodo fondo (MCU/display/fondo)
                      └──► Par1 ──► VCC laterales
 ```
 
-* **Portón abierto** (imán junto al reed) → bobina energizada → NO cierra → vive todo (laterales incluidos).
-* **Portón cerrado** → reed abre → muere bobina, laterales y fondo. Consumo en reposo: **cero real** (el reed es un contacto pasivo).
-* **Diodo flyback 1N4148** en la bobina (cátodo a bobina+, ánodo a bobina−): al abrir el reed, la bobina genera un pico de decenas de volt ($V = L \cdot di/dt$) que pica/suelda los contactos y mete resets al ESP8266 por el mismo UTP. El diodo lo recorta a ~5.7 V. No es opcional aunque sean "solo" 70 mA: el pico no depende de la corriente nominal.
+* **Portón abierto** (imán junto al reed) → módulo energizado → IN ya en LOW → relé pega → viven laterales + fondo.
+* **Portón cerrado** → reed abre → módulo apagado (hasta su LED de power muere) → todo muerto. Consumo en reposo: **cero real**.
+* El reed maneja ~80 mA totales del módulo (bobina + opto + LEDs), dentro de su rating típico 0.5 A. Sin transistor ni GPIO.
+* **Sin diodo externo**: el HW-482 ya trae flyback en placa en paralelo con la bobina.
 * **Bulk 470 µF + 100 nF** en el riel del nodo fondo (patas cortas): cabalgan el rebote de contactos al energizar y las ráfagas WiFi del ESP8266 (~400 mA). Una fuente de 2 A sobra en promedio pero no responde en microsegundos; para eso están los capacitores locales.
 * Boot de 2–4 s al abrir el portón antes del `READY_` (el auto igual espera al portón).
+* Los LEDs del módulo (power + canal) sirven de diagnóstico a simple vista: con portón abierto, ambos encendidos.
 
 ### Nota sobre relé y láseres (lógica cableada, sin software)
 
@@ -140,15 +142,16 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 
 > El echo del sensor de fondo va a **GPIO12** y no a GPIO16: en ESP8266 el GPIO16 es un pin especial RTC sin soporte de interrupciones (el componente ultrasonic mide el pulso de echo por interrupción) y tampoco sirve como entrada fiable. Como salida de trigger, GPIO16 funciona sin problema.
 
-### Distribución de Pares en Cable UTP Cat 5e (un tendido fondo→portón, 7/8 hilos)
+### Distribución de Pares en Cable UTP Cat 5e (un tendido fondo→portón, 8/8 hilos)
 
 ```text
  [ Par 1: Azul / Blanco-Azul ]     ──► 5V conmutado + GND (potencia laterales)
  [ Par 2: Naranja / Blanco-Naranja] ──► Trig Izq (GPIO0) + Echo Izq (GPIO5)
  [ Par 3: Verde / Blanco-Verde ]   ──► Trig Der (GPIO15) + Echo Der (GPIO4)
- [ Par 4: Marrón / Blanco-Marrón ] ──► Retorno reed + RESERVA (o 2º GND)
+ [ Par 4: Marrón / Blanco-Marrón ] ──► Lazo reed: 5V ida + retorno a VCC módulo (~80 mA)
 
 ```
+(8/8 hilos usados, sin reserva.)
 
 * Los divisores de echo van **atrás, junto al MCU** (protegen el GPIO donde entra la señal).
 * Los pulsos de trigger/echo por ~6 m de Cat5e no requieren cambios de timings (retardos de ns, flancos tolerables).
@@ -160,6 +163,7 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 
 * **Nodo fondo (pared de fondo):** matriz LED a la altura de los ojos del conductor y centrada con el eje del vehículo + NodeMCU + sensor fondo a la altura del paragolpe, todo en corto directo (SPI y fondo sin UTP). Prever acceso USB al NodeMCU (primer flasheo y recovery).
 * **Nodo portón:** laterales a la altura de los espejos retrovisores apuntando a los flancos + reed en el marco con imán en la hoja móvil (calibrar para contacto cerrado con portón abierto) + nada más (sin MCU ni relé ahí).
+* **Módulo HW-482:** atrás junto al MCU, IN puenteado a GND, jumper JD-VCC de fábrica. Sus LEDs (power + canal) son los testigos: con portón abierto, ambos encendidos.
 * **Sensores multi-modo:** los módulos marcados HC-SR04 con pads R4/R5 se usan en modo clásico de 2 hilos (**pads abiertos**). No puentear R4 (I2C), R5 (UART) ni R4+R5 ("1-WIRE" single-bus): ningún modo alternativo tiene soporte nativo en ESPHome y el diseño actual los necesita en modo trigger/echo.
 * **Entorno:** evitar sol directo sobre los HC-SR04 y superficies absorbentes (telas, espuma) en la línea de medición; el ultrasonido rebota mejor en superficies duras y perpendiculares.
 
@@ -167,8 +171,8 @@ Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.7
 
 | Síntoma | Causa probable | Acción |
 | :--- | :--- | :--- |
-| No enciende al abrir el portón | Reed descalibrado o bobina sin 5V | Verificar continuidad del lazo reed con multímetro, magnetismo en reed abierto |
-| Resets al cerrar el portón o en STOP | Falta diodo flyback o bulk | Verificar 1N4148 en bobina y 470 µF + 100 nF en riel fondo |
+| No enciende al abrir el portón | Reed descalibrado o módulo sin 5V | Mirar LEDs del HW-482 (power+canal con portón abierto); verificar continuidad del lazo reed con multímetro |
+| Resets al cerrar el portón o en STOP | Flyback o bulk insuficientes | Verificar el módulo HW-482 (diodo interno de fábrica) y los capacitores de 470 µF + 100 nF en el riel de fondo |
 | Fondo sin respuesta (siempre `READY_`) | Echo fondo sin señal o fuera de alcance (> 2 m) | Revisar cableado/divisor de GPIO12, `esphome logs parking.yaml --device /dev/ttyUSB0` |
 | Texto espejado o rotado | Orden de encadenado DOUT→DIN invertido | Probar `reverse_enable`, `rotate_chip` o `flip_x` |
 | Brillo bajo / flicker | Caída de tensión con 4 chips a 3.3 V o cable UTP muy largo | Level-converter, alimentar matriz con 5 V dedicados |
