@@ -77,7 +77,7 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 3. **Sensores de Distancia:** 3x HC-SR04 (Ultrasonido).
 4. **Lásers de Posición:** 3x Módulos de Diodo Láser de $5\text{V}$.
 5. **Control de Energía:** Módulo relé HW-482 de $5\text{ V}$ (1 canal, optoacoplado, disparo LOW, bobina ~70 mA, contactos SPDT 10 A, diodo flyback incluido en placa, jumper JD-VCC de fábrica sin tocar).
-6. **Protección Lógica:** Divisores de tensión ($1.5\text{ k}\Omega$ y $1.8\text{ k}\Omega$) para adaptar las salidas de $5\text{V}$ del `Echo` de los HC-SR04 al nivel de $3.3\text{V}$ del ESP8266.
+6. **Protección Lógica:** Divisores de tensión ($1\text{ k}\Omega$ arriba y $1.8\text{ k}\Omega$ abajo) para adaptar las salidas de $5\text{V}$ del `Echo` de los HC-SR04 al nivel de $3.3\text{V}$ del ESP8266.
 7. **Infraestructura de Cableado:** Cable de red UTP Cat 5e de cobre (un solo tendido fondo→portón, 7/8 hilos usados).
 
 ### Asignación de Pines (ESP8266 NodeMCU)
@@ -130,15 +130,15 @@ Los 3 diodos láser funcionan con lógica cableada directa a la alimentación ($
 Debido a que los sensores HC-SR04 entregan pulsos de $5\text{V}$ en su pin `Echo` y los pines GPIO del ESP8266 operan a un máximo de $3.3\text{V}$, se debe intercalar un divisor resistivo en cada línea `Echo`:
 
 ```text
-Echo HC-SR04 (5V) ───[ 1.5 kΩ ]───┬───► GPIO ESP8266 (2.73V Seguro)
-                                   │
-                                [ 1.8 kΩ ]
-                                   │
-                                  GND
+Echo HC-SR04 (5V) ───[ 1 kΩ ]───┬───► GPIO ESP8266 (3.21V Seguro)
+                                 │
+                              [ 1.8 kΩ ]
+                                 │
+                                GND
 
 ```
 
-> $5 \times 1.8/(1.5+1.8) = 2.73\text{ V}$, por encima del VIH (~2.5 V) pero con poco margen ante ruido en cable largo. Para mayor margen se recomienda **1 kΩ / 2 kΩ → 3.33 V**.
+> $5 \times 1.8/(1.0+1.8) = 3.21\text{ V}$: por debajo del máximo ($3.3\text{ V}$) y con buen margen sobre el VIH (~2.5 V), incluso con cable largo. Corriente del divisor en pulso: ~1.8 mA, sin carga para el Echo.
 
 > El echo del sensor de fondo va a **GPIO12** y no a GPIO16: en ESP8266 el GPIO16 es un pin especial RTC sin soporte de interrupciones (el componente ultrasonic mide el pulso de echo por interrupción) y tampoco sirve como entrada fiable. Como salida de trigger, GPIO16 funciona sin problema.
 
