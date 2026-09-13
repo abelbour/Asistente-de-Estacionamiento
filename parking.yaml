@@ -8,9 +8,21 @@ esp8266:
 
 logger:
 
-# Servidor Web local en modo Punto de Acceso (Sin conexión exterior necesaria)
+# Telemetría para el modal Sistema del dashboard (heap, loop, reset). Cada 30 s.
+debug:
+  update_interval: 30s
+
+# Servidor Web local + API para el dashboard (ver carpeta web/).
+# allowed_origins "*" permite que la página (cualquier origen) lea estados y envíe comandos.
+# version 1: interfaz tabla liviana (menos flash/RAM en ESP8266); la API REST/events no depende de la versión.
+# NOTA: v1 está deprecada y se elimina en 2027.1.0 -> migrar a v2 en ese momento.
+# enable_private_network_access: Chrome exige preflight PNA para página pública -> equipo local.
 web_server:
   port: 80
+  version: 1
+  enable_private_network_access: true
+  allowed_origins:
+    - "*"
 
 wifi:
   # Sin SSID/clave en el YAML: la red del hogar se carga vía portal cautivo.
@@ -22,6 +34,7 @@ captive_portal:
 
 ota:
   - platform: esphome
+  - platform: web_server # habilita POST /update para el diálogo de firmware del dashboard
 
 # Sin componente font: los 10 glifos 5x8 (READYSTOP_) van embebidos como tablas
 # en el lambda del display (extraídos de spleen-5x8.bdf). Nada que subir junto al YAML.
@@ -45,6 +58,7 @@ globals:
     initial_value: 'false'
   - id: alerta_poste_on
     type: bool
+    restore_value: yes
     initial_value: 'true'
 
 # Umbrales Configurables (Ajustables dinámicamente desde la interfaz Web)
@@ -53,6 +67,7 @@ number:
     name: "Tiempo Inactividad STOP (s)"
     id: tiempo_inactividad_stop
     optimistic: true
+    restore_value: true
     initial_value: 10
     min_value: 3
     max_value: 60
@@ -62,6 +77,7 @@ number:
     name: "Umbral Lateral (cm)"
     id: umbral_lateral
     optimistic: true
+    restore_value: true
     initial_value: 50
     min_value: 10
     max_value: 100
@@ -71,6 +87,7 @@ number:
     name: "Umbral Desvío Chevron (cm)"
     id: umbral_desvio_chev
     optimistic: true
+    restore_value: true
     initial_value: 5
     min_value: 1
     max_value: 20
@@ -80,6 +97,7 @@ number:
     name: "Umbral Poste Lateral (cm)"
     id: umbral_poste
     optimistic: true
+    restore_value: true
     initial_value: 15
     min_value: 5
     max_value: 40
@@ -89,6 +107,7 @@ number:
     name: "Umbral Inicio (cm)"
     id: umbral_inicio
     optimistic: true
+    restore_value: true
     initial_value: 150
     min_value: 50
     max_value: 250
@@ -98,6 +117,7 @@ number:
     name: "Umbral Precaucion (cm)"
     id: umbral_precaucion
     optimistic: true
+    restore_value: true
     initial_value: 50
     min_value: 20
     max_value: 100
@@ -107,6 +127,7 @@ number:
     name: "Umbral Alerta (cm)"
     id: umbral_alerta
     optimistic: true
+    restore_value: true
     initial_value: 20
     min_value: 10
     max_value: 40
@@ -116,9 +137,97 @@ number:
     name: "Umbral STOP (cm)"
     id: umbral_stop
     optimistic: true
+    restore_value: true
     initial_value: 10
     min_value: 5
     max_value: 20
+    step: 1
+
+  # Dimensiones para el esquema del dashboard web (solo almacén de parámetros,
+  # con restore para que persistan reboots; la lógica del firmware no los usa)
+  - platform: template
+    name: "Ancho Portón (cm)"
+    id: ancho_porton
+    optimistic: true
+    restore_value: true
+    initial_value: 200
+    min_value: 100
+    max_value: 400
+    step: 5
+
+  - platform: template
+    name: "Ancho Auto (cm)"
+    id: ancho_auto
+    optimistic: true
+    restore_value: true
+    initial_value: 170
+    min_value: 100
+    max_value: 250
+    step: 5
+
+  - platform: template
+    name: "Largo Garage (cm)"
+    id: largo_garage
+    optimistic: true
+    restore_value: true
+    initial_value: 500
+    min_value: 300
+    max_value: 800
+    step: 10
+
+  - platform: template
+    name: "Largo Auto (cm)"
+    id: largo_auto
+    optimistic: true
+    restore_value: true
+    initial_value: 420
+    min_value: 250
+    max_value: 600
+    step: 10
+
+  # Ancho total con espejos: SOLO para el esquema web (el firmware no lo usa
+  # en la lógica; los laterales miran la carrocería por debajo de los espejos).
+  # Con restore para que persista entre dispositivos que miren el dashboard.
+  - platform: template
+    name: "Ancho Auto con espejos (cm)"
+    id: ancho_auto_espejos
+    optimistic: true
+    restore_value: true
+    initial_value: 190
+    min_value: 100
+    max_value: 300
+    step: 1
+
+  # Distancias manuales para la opción "Manual" del Modo Prueba (0 = sin eco).
+  # Sin restore: tras un corte vuelven a 0 y nunca quedan distancias forzadas.
+  - platform: template
+    name: "Prueba Fondo (cm)"
+    id: prueba_fondo
+    optimistic: true
+    restore_value: false
+    initial_value: 0
+    min_value: 0
+    max_value: 400
+    step: 1
+
+  - platform: template
+    name: "Prueba Izquierda (cm)"
+    id: prueba_izq
+    optimistic: true
+    restore_value: false
+    initial_value: 0
+    min_value: 0
+    max_value: 200
+    step: 1
+
+  - platform: template
+    name: "Prueba Derecha (cm)"
+    id: prueba_der
+    optimistic: true
+    restore_value: false
+    initial_value: 0
+    min_value: 0
+    max_value: 200
     step: 1
 
 # Interruptor para activar/desactivar la alerta de poste (activada por defecto)
@@ -131,6 +240,39 @@ switch:
       - lambda: 'id(alerta_poste_on) = true;'
     turn_off_action:
       - lambda: 'id(alerta_poste_on) = false;'
+
+# Modo de prueba: fuerza un estado de la máquina en la matriz con valores
+# sintéticos y sensores congelados, u opción "Manual" con distancias
+# ingresadas a mano (numbers Prueba Fondo/Izquierda/Derecha, 0 = sin eco)
+# evaluadas por la máquina de estados real. Siempre arranca en Automático
+# por seguridad (sin restore: un corte del portón nunca deja el equipo
+# forzado en un estado; los numbers de prueba tampoco restauran).
+select:
+  - platform: template
+    name: "Modo Prueba"
+    id: modo_prueba
+    optimistic: true
+    restore_value: false
+    options:
+      - "Automático"
+      - "READY"
+      - "Retroceso"
+      - "Alineación centrada"
+      - "Alineación corregir izq"
+      - "Alineación corregir der"
+      - "Aproximación Normal"
+      - "Aproximación Precaución"
+      - "Aproximación Alerta"
+      - "STOP"
+      - "Peligro Poste"
+      - "Inactividad"
+      - "Manual"
+    initial_option: "Automático"
+
+# Botón de reinicio en la interfaz web propia de ESPHome
+button:
+  - platform: restart
+    name: "Reiniciar"
 
 # Sensores Ultrasonido HC-SR04 (disparo secuencial round-robin + salida en cm)
 # Fondo: trigger en GPIO16 (salida OK) y echo en GPIO12 (con interrupciones).
@@ -183,12 +325,33 @@ sensor:
           send_every: 1
           send_first_at: 1
 
+  # Telemetría del modal Sistema (dashboard)
+  - platform: debug
+    free:
+      name: "Heap Libre"
+    block:
+      name: "Bloque Máx"
+    fragmentation:
+      name: "Fragmentación"
+    loop_time:
+      name: "Loop"
+    cpu_frequency:
+      name: "CPU"
+  - platform: uptime
+    name: "Tiempo Encendido"
+    update_interval: 30s
+  - platform: wifi_signal
+    name: "WiFi"
+    update_interval: 30s
+
 # Disparo secuencial por turnos (round-robin cada 70 ms -> cada sensor se mide cada 210 ms)
 interval:
   - interval: 70ms
     then:
       - lambda: |-
           static uint8_t turno = 0;
+          // En Modo Prueba los sensores se congelan (valores sintéticos en matriz)
+          if (id(modo_prueba).current_option() != "Automático") return;
           if (turno == 0) {
             id(sensor_fondo).update();
           } else if (turno == 1) {
@@ -210,6 +373,41 @@ text_sensor:
     id: texto_pantalla
     icon: "mdi:led-strip-scan"
 
+  # Telemetría del modal Sistema (dashboard)
+  - platform: debug
+    device:
+      name: "Info Dispositivo"
+    reset_reason:
+      name: "Motivo Reinicio"
+  - platform: version
+    name: "Versión ESPHome"
+  - platform: wifi_info
+    ip_address:
+      name: "IP"
+    ssid:
+      name: "Red WiFi"
+    bssid:
+      name: "BSSID"
+    mac_address:
+      name: "MAC"
+  - platform: template
+    name: "Firmware"
+    icon: "mdi:memory"
+    lambda: 'return __DATE__ " " __TIME__;'
+
+# Nombre de la cochera para el dashboard web (solo etiqueta visible;
+# la lógica del firmware no lo usa). Con restore para que persista
+# entre dispositivos que miren la web.
+text:
+  - platform: template
+    name: "Nombre Cochera"
+    id: nombre_cochera
+    optimistic: true
+    restore_value: true
+    initial_value: "Cochera"
+    min_length: 1
+    max_length: 64
+
 # Bus SPI y Matriz LED MAX7219 (GPIO14 dedicado a CLK, CS en GPIO2)
 spi:
   clk_pin: GPIO14
@@ -227,51 +425,49 @@ display:
       frame_counter++;
 
       // Restaurar modo normal por defecto (STOP usa inversión parpadeante)
+      // e intensidad máxima (solo STOP/alerta/poste la bajan en su rama)
       it.invert_on_off(false);
+      it.set_intensity(15);
 
-      // Publicar solo cuando el valor cambia (evita saturar web_server)
+      // Publicar solo cuando el valor cambia (evita saturar web_server y churn de heap:
+      // se compara sin alocar y solo se construye std::string al publicar de verdad)
       static std::string last_modo = "";
       static std::string last_pantalla = "";
-      auto publish_modo = [&](const std::string &m) {
-        if (m != last_modo) {
+      auto publish_modo = [&](const char *m) {
+        if (last_modo != m) {
           last_modo = m;
           id(modo_sistema).publish_state(m);
         }
       };
-      auto publish_pantalla = [&](const std::string &t) {
-        if (t != last_pantalla) {
+      auto publish_pantalla = [&](const char *t) {
+        if (last_pantalla != t) {
           last_pantalla = t;
           id(texto_pantalla).publish_state(t);
         }
       };
 
-      // Chevron gráfico 5x3 (sin fuente): v hacia abajo (retroceso)
-      auto chevron_down = [&](int x, int y) {
-        it.line(x, y, x + 2, y + 2);
-        it.line(x + 2, y + 2, x + 4, y);
-      };
       // Rango X recortado en los dígitos: la barra lo tapa y se ve invertido
       int carve_x0 = 0;
       int carve_x1 = -1;
 
-      // Dígitos 3x5 dibujados (sin fuente): 5 filas x 3 bits, bit 2 = columna izquierda
-      static const uint8_t DIG35[10][5] = {
-        {0b111, 0b101, 0b101, 0b101, 0b111}, // 0
-        {0b001, 0b001, 0b001, 0b001, 0b001}, // 1
-        {0b111, 0b001, 0b111, 0b100, 0b111}, // 2
-        {0b111, 0b001, 0b111, 0b001, 0b111}, // 3
-        {0b101, 0b101, 0b111, 0b001, 0b001}, // 4
-        {0b111, 0b100, 0b111, 0b001, 0b111}, // 5
-        {0b111, 0b100, 0b111, 0b101, 0b111}, // 6
-        {0b111, 0b001, 0b001, 0b001, 0b001}, // 7
-        {0b111, 0b101, 0b111, 0b101, 0b111}, // 8
-        {0b111, 0b101, 0b111, 0b001, 0b111}, // 9
+      // Dígitos 3x6 del usuario (num.gif, tira 1-9,0): 6 filas x 3 bits, avance 4
+      static const uint8_t DIG36[10][6] = {
+        {0b111, 0b101, 0b101, 0b101, 0b101, 0b111}, // 0
+        {0b110, 0b010, 0b010, 0b010, 0b010, 0b111}, // 1
+        {0b111, 0b001, 0b111, 0b100, 0b100, 0b111}, // 2
+        {0b111, 0b001, 0b011, 0b001, 0b001, 0b111}, // 3
+        {0b101, 0b101, 0b101, 0b111, 0b001, 0b001}, // 4
+        {0b111, 0b100, 0b111, 0b001, 0b001, 0b111}, // 5
+        {0b111, 0b100, 0b111, 0b101, 0b101, 0b111}, // 6
+        {0b111, 0b001, 0b001, 0b001, 0b001, 0b001}, // 7
+        {0b111, 0b101, 0b111, 0b101, 0b101, 0b111}, // 8
+        {0b111, 0b101, 0b101, 0b111, 0b001, 0b111}, // 9
       };
-      auto draw_digit35 = [&](int x, int y, int d) {
-        for (int r = 0; r < 5; r++) {
+      auto draw_digit36 = [&](int x, int y, int d) {
+        for (int r = 0; r < 6; r++) {
           for (int c = 0; c < 3; c++) {
             int px = x + c;
-            if (DIG35[d][r] & (1 << (2 - c))) {
+            if (DIG36[d][r] & (1 << (2 - c))) {
               if (px >= carve_x0 && px <= carve_x1) {
                 // Dentro de la barra: borra el píxel (calado en negativo)
                 it.draw_pixel_at(px, y + r, esphome::display::COLOR_OFF);
@@ -282,45 +478,64 @@ display:
           }
         }
       };
-      auto draw_num35 = [&](int x, int y, int n) {
+      auto draw_num36 = [&](int x, int y, int n) {
         if (n < 0) n = 0;
         if (n > 999) n = 999;
         if (n >= 100) {
-          draw_digit35(x, y, n / 100);
-          draw_digit35(x + 4, y, (n / 10) % 10);
-          draw_digit35(x + 8, y, n % 10);
+          draw_digit36(x, y, n / 100);
+          draw_digit36(x + 4, y, (n / 10) % 10);
+          draw_digit36(x + 8, y, n % 10);
         } else if (n >= 10) {
-          draw_digit35(x, y, n / 10);
-          draw_digit35(x + 4, y, n % 10);
+          draw_digit36(x, y, n / 10);
+          draw_digit36(x + 4, y, n % 10);
         } else {
-          draw_digit35(x, y, n);
+          draw_digit36(x, y, n);
         }
       };
-      // Chevron ^ de 7x4 para aproximación (bit 6 = col izq), con calado como dígitos
-      static const uint8_t CHEV7[4] = {0b0001000, 0b0010100, 0b0100010, 0b1000001};
-      auto draw_chev7 = [&](int x, int y) {
-        for (int r = 0; r < 4; r++) {
+      // Marquesina ^ del usuario (chev_arriba_normal.gif): 4 frames 7x8.
+      // Calado por píxel como dígitos y número: lo tapado por la barra va OFF.
+      static const uint8_t CHEVUP[4][8] = {
+        {0b0011100, 0b0110110, 0b1100011, 0b1001001, 0b0011100, 0b0110110, 0b1100011, 0b1001001}, // f0
+        {0b0110110, 0b1100011, 0b1001001, 0b0011100, 0b0110110, 0b1100011, 0b1001001, 0b0011100}, // f1
+        {0b1100011, 0b1001001, 0b0011100, 0b0110110, 0b1100011, 0b1001001, 0b0011100, 0b0110110}, // f2
+        {0b1001001, 0b0011100, 0b0110110, 0b1100011, 0b1001001, 0b0011100, 0b0110110, 0b1100011}, // f3
+      };
+      auto draw_chevup = [&](int x, int fi, bool vflip) {
+        for (int r = 0; r < 8; r++) {
+          uint8_t bits = CHEVUP[fi & 3][vflip ? (7 - r) : r];
           for (int c = 0; c < 7; c++) {
-            int px = x + c, py = y + r;
-            if (py < 0 || py > 7) continue;
-            if (CHEV7[r] & (1 << (6 - c))) {
+            int px = x + c;
+            if (bits & (1 << (6 - c))) {
               if (px >= carve_x0 && px <= carve_x1) {
-                it.draw_pixel_at(px, py, esphome::display::COLOR_OFF);
+                it.draw_pixel_at(px, r, esphome::display::COLOR_OFF);
               } else {
-                it.draw_pixel_at(px, py, esphome::display::COLOR_ON);
+                it.draw_pixel_at(px, r, esphome::display::COLOR_ON);
               }
             }
           }
         }
       };
-      // Chevrones 3x5 a la altura de los dígitos: > hacia derecha, < hacia izquierda
-      auto chevron_right = [&](int x, int y) {
-        it.line(x, y, x + 2, y + 2);
-        it.line(x + 2, y + 2, x, y + 4);
+      // Marquesina > del usuario (chev_der.gif 7x5): 4 frames. < se espeja.
+      static const uint8_t CHEVDER[4][5] = {
+        {0b1100110, 0b0110011, 0b0011001, 0b0110011, 0b1100110}, // f0
+        {0b0110011, 0b0011001, 0b0001100, 0b0011001, 0b0110011}, // f1
+        {0b0011001, 0b1001100, 0b1100110, 0b1001100, 0b0011001}, // f2
+        {0b1001100, 0b1100110, 0b0110011, 0b1100110, 0b1001100}, // f3
       };
-      auto chevron_left = [&](int x, int y) {
-        it.line(x + 2, y, x, y + 2);
-        it.line(x, y + 2, x + 2, y + 4);
+      auto mirror7 = [](uint8_t v) -> uint8_t {
+        return ((v & 0x40) >> 6) | ((v & 0x20) >> 4) | ((v & 0x10) >> 2) | (v & 0x08) |
+               ((v & 0x04) << 2) | ((v & 0x02) << 4) | ((v & 0x01) << 6);
+      };
+      auto draw_chevder = [&](int x, int y, int fi, bool mirror) {
+        for (int r = 0; r < 5; r++) {
+          uint8_t bits = CHEVDER[fi & 3][r];
+          if (mirror) bits = mirror7(bits);
+          for (int c = 0; c < 7; c++) {
+            if (bits & (1 << (6 - c))) {
+              it.draw_pixel_at(x + c, y + r, esphome::display::COLOR_ON);
+            }
+          }
+        }
       };
 
       // Glifos 5x8 propios (extraídos de spleen-5x8.bdf; sin archivo externo).
@@ -361,22 +576,43 @@ display:
           cx += 5;
         }
       };
-      // Prompt retro: READY_ con guion parpadeante (6 glifos x 5px = x 1..30), brillo máximo
+      // STOP gigante: mapa de bits libre de 32x8 (bit 31 = x0), dibujo del usuario.
+      // Se dibuja en ON igual que draw_text58: con la matriz invertida el ON se ve
+      // apagado sobre el fondo encendido (la inversión niega el framebuffer al enviar).
+      static const uint32_t STOP32[8] = {
+        0x00000000, 0x7EFEFEFE, 0x6018C2C2, 0x7F18C2C2,
+        0x0318C2FE, 0x0318C2C0, 0x7F18FEC0, 0x00000000,
+      };
+      auto draw_stop_big = [&]() {
+        for (int y = 0; y < 8; y++) {
+          for (int x = 0; x < 32; x++) {
+            if (STOP32[y] & (1UL << (31 - x))) {
+              it.draw_pixel_at(x, y, esphome::display::COLOR_ON);
+            }
+          }
+        }
+      };
+      // Prompt retro: READY_ con guion parpadeante (6 glifos x 5px = x 1..30)
       auto print_ready_prompt = [&]() {
-        it.set_intensity(15);
         draw_text58(1, 0, "READY");
         if ((frame_counter / 5) % 2 == 0) {
           draw_text58(26, 0, "_");
         }
       };
 
-      float fondo = id(sensor_fondo).state;
-      float izq = id(sensor_izq).state;
-      float der = id(sensor_der).state;
+      // === Máquina de estados: evaluación separada del dibujado ===
+      // evalua_modo() decide (pura decisión + histéresis/temporizadores),
+      // dibuja_modo() renderiza. Mismo orden y umbrales que la cadena original.
+      enum class Modo : uint8_t {
+        REPOSO_READY, ARRANQUE_LISTO, RETROCESO,
+        ALIN_CENTRADA, ALIN_DESV_DER, ALIN_DESV_IZQ,
+        APROX_NORMAL, APROX_PRECAUCION, APROX_ALERTA,
+        STOP_CRITICO, POSTE_PELIGRO, INACTIVIDAD_READY
+      };
+      struct Entradas { float fondo; float izq; float der; };
+      struct Eval { Modo modo; bool dev_der; bool dev_izq; };
 
       // Histéresis de 2 cm (evita parpadeo en fronteras): se entra con el nominal y se sale con + margen.
-      // Se evalúa ANTES que cualquier return: la alineación lateral es prioritaria
-      // y no depende del eco de fondo (un NaN trasero no debe tapar el guiado entre columnas).
       static const float HIST_CM = 2.0;
       static bool h_stop = false;
       static bool h_alerta = false;
@@ -398,251 +634,332 @@ display:
         else s = (v > lim);
       };
 
-      // Validación de alineación: AMBOS sensores deben detectar el auto <= umbral (+ histéresis si ya activo)
-      float lim_lat = id(umbral_lateral).state + (h_lat ? HIST_CM : 0.0);
-      bool auto_lat_izq = (!isnan(izq) && izq > 0.0 && izq <= lim_lat);
-      bool auto_lat_der = (!isnan(der) && der > 0.0 && der <= lim_lat);
-      bool pres_lateral = auto_lat_izq && auto_lat_der;
-      h_lat = pres_lateral;
+      // Decide el modo a partir de las entradas. Conserva el orden de precedencia
+      // original: alineación (absoluta, no depende del fondo) → fondo inválido →
+      // arranque → retroceso → STOP/inactividad → aproximación → reposo.
+      // Efectos laterales idénticos a los originales (temporizadores y siembra).
+      auto evalua_modo = [&](const Entradas &e, uint32_t ahora) -> Eval {
+        float fondo = e.fondo, izq = e.izq, der = e.der;
 
-      // Banderas laterales: solo se usan con pres_lateral (ambos válidos), el NaN no las contamina
-      float lat_min = (izq < der) ? izq : der;
-      hyst_le(h_poste, lat_min, id(umbral_poste).state);
-      hyst_gt(h_dev_der, izq - der, id(umbral_desvio_chev).state);
-      hyst_gt(h_dev_izq, der - izq, id(umbral_desvio_chev).state);
+        // Validación de alineación: AMBOS sensores deben detectar el auto <= umbral
+        float lim_lat = id(umbral_lateral).state + (h_lat ? HIST_CM : 0.0);
+        bool auto_lat_izq = (!isnan(izq) && izq > 0.0 && izq <= lim_lat);
+        bool auto_lat_der = (!isnan(der) && der > 0.0 && der <= lim_lat);
+        bool pres_lateral = auto_lat_izq && auto_lat_der;
+        h_lat = pres_lateral;
 
-      // 1. ESTADO ALINEACIÓN LATERAL (prioritario: no depende del fondo)
-      if (pres_lateral) {
-        // Peligro de poste: alterna con STOP invertido fijo.
+        float lat_min = (izq < der) ? izq : der;
+        hyst_le(h_poste, lat_min, id(umbral_poste).state);
+        hyst_gt(h_dev_der, izq - der, id(umbral_desvio_chev).state);
+        hyst_gt(h_dev_izq, der - izq, id(umbral_desvio_chev).state);
 
-        if (id(alerta_poste_on) && h_poste && ((frame_counter / 5) % 2 == 1)) {
-          it.invert_on_off(true);
-          it.set_intensity(12);
-          draw_text58(4, 0, "STOP");
-
-          publish_modo("Alineación - Peligro Poste");
-          publish_pantalla("[  S T O P  ]");
-          return;
-        }
-
-        it.set_intensity(15);
-
-        float dif_mm = (izq - der) * 10.0;
-
-        // Distancias (primero: la barra las recorta al taparlas)
-        int ni = (int)izq;
-        int nd = (int)der;
-        if (ni < 0) ni = 0;
-        if (ni > 99) ni = 99;
-        if (nd < 0) nd = 0;
-        if (nd > 99) nd = 99;
-
-        // Barra de progreso sólida desde el centro, toda la altura (filas 0-7).
-        bool centrado = (!h_dev_der && !h_dev_izq);
-        int pos_x = 15 + (int)(dif_mm / 20.0);
-        if (pos_x < 0) pos_x = 0;
-        if (pos_x > 31) pos_x = 31;
-        int bar_x0, bar_x1;
-        if (centrado) { bar_x0 = 15; bar_x1 = 16; }
-        else if (pos_x > 16) { bar_x0 = 16; bar_x1 = pos_x; }
-        else { bar_x0 = pos_x; bar_x1 = 15; }
-        carve_x0 = bar_x0;
-        carve_x1 = bar_x1;
-
-        // Chevrones de corrección 3x5 a la altura de los dígitos (filas 1-5),
-        // en el hueco entre el centro y el número, del lado libre. Sin ticks.
-        int slide = (frame_counter / 6) % 2;
-        if (h_dev_der) {
-          // Pegado a DERECHA: << a la izquierda (corregir a la izquierda)
-          chevron_left(8 - slide, 1);
-          chevron_left(11 - slide, 1);
-        }
-        if (h_dev_izq) {
-          // Pegado a IZQUIERDA: >> a la derecha (corregir a la derecha)
-          chevron_right(17 + slide, 1);
-          chevron_right(20 + slide, 1);
-        }
-        // Barra sólida a toda altura PRIMERO; los dígitos se calan en negativo encima
-        for (int x = bar_x0; x <= bar_x1; x++) {
-          it.vertical_line(x, 0, 8);
-        }
-
-        // Distancias contra los márgenes, centradas verticalmente (filas 1-5):
-        // fuera de la barra en ON, dentro en OFF (invertido)
-        draw_num35(0, 1, ni);
-        int wd = (nd >= 10) ? 8 : 3;
-        draw_num35(32 - wd, 1, nd);
-
-        publish_modo("Alineación Lateral");
-
-        // La matriz es gráfica (ver nota); los valores en cm van a la simulación web.
-        char buf_lat[40];
-        if (h_dev_der) {
-          snprintf(buf_lat, sizeof(buf_lat), "[ %.0fcm << : ║ %.0fcm ]", izq, der);
-          publish_pantalla(std::string(buf_lat));
-        } else if (h_dev_izq) {
-          snprintf(buf_lat, sizeof(buf_lat), "[ %.0fcm >> : ║ %.0fcm ]", izq, der);
-          publish_pantalla(std::string(buf_lat));
-        } else {
-          snprintf(buf_lat, sizeof(buf_lat), "[ %.0fcm | : | %.0fcm ]", izq, der);
-          publish_pantalla(std::string(buf_lat));
-        }
-        return;
-      }
-
-      // Lectura inválida: se muestra como reposo (sin estado de fallo dedicado).
-      // No tocar temporizadores ni distancia previa, no congelar variables.
-      bool fondo_valido = (!isnan(fondo) && fondo > 0.0);
-      if (!fondo_valido) {
-        print_ready_prompt();
-
-        publish_modo("En Espera / Sistema Listo");
-        publish_pantalla("[   R E A D Y   ]");
-        return;
-      }
-
-      // Flags de fondo (requieren lectura válida; lo lateral ya se evaluó arriba)
-      hyst_le(h_stop, fondo, id(umbral_stop).state);
-      hyst_le(h_alerta, fondo, id(umbral_alerta).state);
-      hyst_le(h_prec, fondo, id(umbral_precaucion).state);
-      hyst_le(h_ini, fondo, id(umbral_inicio).state);
-
-      // Evaluación de movimiento y marcha atrás
-      float prev = id(distancia_fondo_previa);
-      float diff = fabsf(fondo - prev);
-      bool en_movimiento = (diff > 1.0);
-      bool retrocediendo = (prev > 0.0) && (fondo > prev + 1.0);
-      id(distancia_fondo_previa) = fondo;
-
-      uint32_t ahora = millis();
-
-      // Gestión de temporizador de inactividad
-      if (en_movimiento) {
-        id(estatico_desde_ms) = ahora;
-        id(modo_ready_post_stop) = false;
-      } else if (id(estatico_desde_ms) == 0) {
-        id(estatico_desde_ms) = ahora;
-      }
-
-      uint32_t tiempo_estatico_ms = ahora - id(estatico_desde_ms);
-      uint32_t limite_inactividad_ms = (uint32_t)(id(tiempo_inactividad_stop).state * 1000.0);
-
-      // 2. EVALUACIÓN DE ARRANQUE CON AUTO ESTACIONADO
-      if (id(flag_inicio)) {
-        // Siembra la referencia para no disparar un falso retroceso en el primer frame
-        id(distancia_fondo_previa) = fondo;
-        retrocediendo = false;
-        if (fondo <= id(umbral_alerta).state) {
-          id(auto_estacionado_inicio) = true;
-        }
-        id(flag_inicio) = false;
-      }
-
-      if (retrocediendo || fondo < prev - 2.0) {
-        id(auto_estacionado_inicio) = false;
-      }
-
-      // 3. ESTADO AUTO ESTACIONADO AL ENCENDER -> "READY"
-      if (id(auto_estacionado_inicio) && !retrocediendo && !pres_lateral) {
-        print_ready_prompt();
-
-        publish_modo("En Espera / Listo (Arranque)");
-        publish_pantalla("[   R E A D Y   ]");
-        return;
-      }
-
-      // 4. ESTADO RETROCESO / ALEJAMIENTO (Chevrones gráficos hacia abajo)
-      if (retrocediendo && !pres_lateral) {
-        it.set_intensity(15);
-
-        int offset_y = (frame_counter / 3) % 8;
-        chevron_down(1, offset_y);
-        chevron_down(26, offset_y);
-
-        publish_modo("Retroceso / Salida");
-        publish_pantalla("[      vv      ]");
-        return;
-      }
-
-      // 5. ESTADO STOP / TRANSICIÓN A READY POR INACTIVIDAD
-      if (h_stop) {
-        if (tiempo_estatico_ms >= limite_inactividad_ms) {
-          id(modo_ready_post_stop) = true;
-        }
-
-        if (id(modo_ready_post_stop)) {
-          print_ready_prompt();
-
-          publish_modo("Estacionado (Pausa Inactividad)");
-          publish_pantalla("[   R E A D Y   ]");
-          return;
-        }
-
-        // STOP fijo en invertido (fondo encendido / texto apagado) con parpadeo de brillo 12 <-> 7
-        it.invert_on_off(true);
-        if ((frame_counter / 3) % 2 == 0) {
-          it.set_intensity(12);
-        } else {
-          it.set_intensity(7);
-        }
-
-        draw_text58(4, 0, "STOP");
-
-        publish_modo("Parada Crítica (STOP)");
-        publish_pantalla("[  S T O P  ]");
-        return;
-      }
-
-      // 6. ESTADO APROXIMACIÓN (Avanzando hacia la pared)
-      if (h_ini) {
-
-        if (h_alerta) {
-          publish_modo("Aproximación - Alerta");
-          // Parpadeo como en STOP (dos niveles), sin inversión para distinguirlo
-          if ((frame_counter / 3) % 2 == 0) {
-            it.set_intensity(12);
-          } else {
-            it.set_intensity(7);
+        // Alineación lateral (prioritaria)
+        if (pres_lateral) {
+          if (id(alerta_poste_on) && h_poste && ((frame_counter / 5) % 2 == 1)) {
+            return {Modo::POSTE_PELIGRO, h_dev_der, h_dev_izq};
           }
-        } else if (h_prec) {
-          publish_modo("Aproximación - Precaución");
-          it.set_intensity(15);
-        } else {
-          publish_modo("Aproximación - Normal");
-          it.set_intensity(15);
+          if (h_dev_der) return {Modo::ALIN_DESV_DER, true, false};
+          if (h_dev_izq) return {Modo::ALIN_DESV_IZQ, false, true};
+          return {Modo::ALIN_CENTRADA, false, false};
         }
 
-        // Barra de progreso L->R según proximidad (vacía en inicio, llena en stop)
-        float u_ini = id(umbral_inicio).state;
-        float u_stop = id(umbral_stop).state;
-        float denom = u_ini - u_stop;
-        if (denom < 1.0) denom = 1.0;
-        int fill = (int)(((u_ini - fondo) / denom) * 32.0);
-        if (fill < 0) fill = 0;
-        if (fill > 32) fill = 32;
-        carve_x0 = 0;
-        carve_x1 = fill - 1;
-        for (int x = 0; x < fill; x++) {
-          it.vertical_line(x, 0, 8);
+        // Lectura inválida: reposo (no toca temporizadores ni distancia previa)
+        if (isnan(fondo) || fondo <= 0.0) {
+          return {Modo::REPOSO_READY, false, false};
         }
 
-        // Distancia en dígitos 3x5 a la izquierda, centrada vertical (filas 1-5)
-        int nf = (int)(fondo + 0.5);
-        draw_num35(0, 1, nf);
+        hyst_le(h_stop, fondo, id(umbral_stop).state);
+        hyst_le(h_alerta, fondo, id(umbral_alerta).state);
+        hyst_le(h_prec, fondo, id(umbral_precaucion).state);
+        hyst_le(h_ini, fondo, id(umbral_inicio).state);
 
-        // Chevron ^ de 7px a la derecha, scroll arriba con velocidad por tier
-        int delay_scroll = h_prec ? 8 : 4;
-        int offset_y = 7 - ((frame_counter / delay_scroll) % 8);
-        draw_chev7(24, offset_y);
+        float prev = id(distancia_fondo_previa);
+        float diff = fabsf(fondo - prev);
+        bool en_movimiento = (diff > 1.0);
+        bool retrocediendo = (prev > 0.0) && (fondo > prev + 1.0);
+        id(distancia_fondo_previa) = fondo;
 
-        char buf[30];
-        snprintf(buf, sizeof(buf), "«   %.0f cm   »", fondo);
-        publish_pantalla(std::string(buf));
-        return;
+        if (en_movimiento) {
+          id(estatico_desde_ms) = ahora;
+          id(modo_ready_post_stop) = false;
+        } else if (id(estatico_desde_ms) == 0) {
+          id(estatico_desde_ms) = ahora;
+        }
+
+        uint32_t tiempo_estatico_ms = ahora - id(estatico_desde_ms);
+        uint32_t limite_inactividad_ms = (uint32_t)(id(tiempo_inactividad_stop).state * 1000.0);
+
+        if (id(flag_inicio)) {
+          id(distancia_fondo_previa) = fondo;
+          retrocediendo = false;
+          if (fondo <= id(umbral_alerta).state) {
+            id(auto_estacionado_inicio) = true;
+          }
+          id(flag_inicio) = false;
+        }
+
+        if (retrocediendo || fondo < prev - 2.0) {
+          id(auto_estacionado_inicio) = false;
+        }
+
+        if (id(auto_estacionado_inicio) && !retrocediendo) {
+          return {Modo::ARRANQUE_LISTO, false, false};
+        }
+
+        if (retrocediendo) {
+          return {Modo::RETROCESO, false, false};
+        }
+
+        if (h_stop) {
+          if (tiempo_estatico_ms >= limite_inactividad_ms) {
+            id(modo_ready_post_stop) = true;
+          }
+          if (id(modo_ready_post_stop)) {
+            return {Modo::INACTIVIDAD_READY, false, false};
+          }
+          return {Modo::STOP_CRITICO, false, false};
+        }
+
+        if (h_ini) {
+          if (h_alerta) return {Modo::APROX_ALERTA, false, false};
+          if (h_prec) return {Modo::APROX_PRECAUCION, false, false};
+          return {Modo::APROX_NORMAL, false, false};
+        }
+
+        return {Modo::REPOSO_READY, false, false};
+      };
+
+      // Renderiza el modo decidido. Usa solo Entradas + flags de desvío.
+      auto dibuja_modo = [&](Modo m, const Entradas &e, bool dev_der, bool dev_izq) {
+        float fondo = e.fondo, izq = e.izq, der = e.der;
+        switch (m) {
+          case Modo::POSTE_PELIGRO:
+            it.invert_on_off(true);
+            it.set_intensity(12);
+            draw_stop_big();
+            break;
+          case Modo::ALIN_CENTRADA:
+          case Modo::ALIN_DESV_DER:
+          case Modo::ALIN_DESV_IZQ: {
+            float dif_mm = (izq - der) * 10.0;
+            int ni = (int)izq;
+            int nd = (int)der;
+            if (ni < 0) ni = 0;
+            if (ni > 99) ni = 99;
+            if (nd < 0) nd = 0;
+            if (nd > 99) nd = 99;
+            bool centrado = (!dev_der && !dev_izq);
+            int pos_x = 15 + (int)(dif_mm / 20.0);
+            if (pos_x < 0) pos_x = 0;
+            if (pos_x > 31) pos_x = 31;
+            int bar_x0, bar_x1;
+            if (centrado) { bar_x0 = 15; bar_x1 = 16; }
+            else if (pos_x > 16) { bar_x0 = 16; bar_x1 = pos_x; }
+            else { bar_x0 = pos_x; bar_x1 = 15; }
+            carve_x0 = bar_x0;
+            carve_x1 = bar_x1;
+            int fi = frame_counter % 4; // ~100 ms/frame = velocidad aprox. normal
+            if (dev_der) {
+              // Pegado a DERECHA: marquesina espejada (corre a la izquierda)
+              draw_chevder(8, 1, fi, true);
+            }
+            if (dev_izq) {
+              // Pegado a IZQUIERDA: marquesina a la derecha (corre a la derecha)
+              draw_chevder(17, 1, fi, false);
+            }
+            for (int x = bar_x0; x <= bar_x1; x++) {
+              it.vertical_line(x, 0, 8);
+            }
+            draw_num36(0, 1, ni);
+            int wd = (nd >= 10) ? 7 : 3; // 2 digitos 4+3=7 -> x=25 (contra borde)
+            draw_num36(32 - wd, 1, nd);
+            break;
+          }
+          case Modo::RETROCESO: {
+            // Misma marquesina ^ pero invertida verticalmente: baja.
+            int fi = (frame_counter / 3) % 4;
+            draw_chevup(1, fi, true);
+            draw_chevup(24, fi, true);
+            break;
+          }
+          case Modo::STOP_CRITICO:
+            it.invert_on_off(true);
+            if ((frame_counter / 3) % 2 == 0) {
+              it.set_intensity(12);
+            } else {
+              it.set_intensity(7);
+            }
+            draw_stop_big();
+            break;
+          case Modo::APROX_NORMAL:
+          case Modo::APROX_PRECAUCION:
+          case Modo::APROX_ALERTA: {
+            if (m == Modo::APROX_ALERTA) {
+              if ((frame_counter / 3) % 2 == 0) {
+                it.set_intensity(12);
+              } else {
+                it.set_intensity(7);
+              }
+            }
+            float u_ini = id(umbral_inicio).state;
+            float u_stop = id(umbral_stop).state;
+            float denom = u_ini - u_stop;
+            if (denom < 1.0) denom = 1.0;
+            // Barra 0..23 (100% en x=23); chevrones en zona 25..31 (col 24 libre)
+            int fill = (int)(((u_ini - fondo) / denom) * 24.0);
+            if (fill < 0) fill = 0;
+            if (fill > 24) fill = 24;
+            carve_x0 = 0;
+            carve_x1 = fill - 1;
+            for (int x = 0; x < fill; x++) {
+              it.vertical_line(x, 0, 8);
+            }
+            int nf = (int)(fondo + 0.5);
+            draw_num36(0, 1, nf);
+            // Velocidad continua del chevrón (sin saltos entre tiers): interpola
+            // 0.5 frames/tick en umbral_precaucion hasta 1 frame/tick en
+            // umbral_inicio. Fase fraccional acumulada; los tiers discretos
+            // (textos, parpadeo) siguen por histéresis como siempre.
+            static float chev_phase = 0.0f;
+            float u_prec = id(umbral_precaucion).state;
+            float span = u_ini - u_prec;
+            if (span < 1.0) span = 1.0;
+            float tvel = (fondo - u_prec) / span;
+            if (tvel < 0.0f) tvel = 0.0f;
+            if (tvel > 1.0f) tvel = 1.0f;
+            chev_phase += 0.5f + 0.5f * tvel;
+            if (chev_phase >= 4.0f) chev_phase -= 4.0f;
+            draw_chevup(25, (int)chev_phase, false);
+            break;
+          }
+          case Modo::REPOSO_READY:
+          case Modo::ARRANQUE_LISTO:
+          case Modo::INACTIVIDAD_READY:
+          default:
+            print_ready_prompt();
+            break;
+        }
+      };
+
+      // Orquestación: entradas reales o sintéticas (Modo Prueba), evaluar, dibujar, publicar.
+      uint32_t ahora = millis();
+      std::string opt = id(modo_prueba).current_option();
+      bool en_prueba = (opt != "Automático");
+      static bool estaba_en_prueba = false;
+      static std::string last_opt = "";
+      Entradas ent{id(sensor_fondo).state, id(sensor_izq).state, id(sensor_der).state};
+      Eval ev{Modo::REPOSO_READY, false, false};
+
+      if (en_prueba) {
+        estaba_en_prueba = true;
+        // Tabla de valores sintéticos por opción (no toca histéresis ni temporizadores)
+        const float NA = NAN;
+        Entradas syn{NA, NA, NA};
+        if (opt == "READY") { ev = {Modo::REPOSO_READY, false, false}; }
+        else if (opt == "Retroceso") { ev = {Modo::RETROCESO, false, false}; syn = Entradas{80.0f, NA, NA}; }
+        else if (opt == "Alineación centrada") { ev = {Modo::ALIN_CENTRADA, false, false}; syn = Entradas{NA, 30.0f, 30.0f}; }
+        else if (opt == "Alineación corregir izq") { ev = {Modo::ALIN_DESV_DER, true, false}; syn = Entradas{NA, 45.0f, 30.0f}; }
+        else if (opt == "Alineación corregir der") { ev = {Modo::ALIN_DESV_IZQ, false, true}; syn = Entradas{NA, 30.0f, 45.0f}; }
+        else if (opt == "Aproximación Normal") { ev = {Modo::APROX_NORMAL, false, false}; syn = Entradas{120.0f, NA, NA}; }
+        else if (opt == "Aproximación Precaución") { ev = {Modo::APROX_PRECAUCION, false, false}; syn = Entradas{35.0f, NA, NA}; }
+        else if (opt == "Aproximación Alerta") { ev = {Modo::APROX_ALERTA, false, false}; syn = Entradas{15.0f, NA, NA}; }
+        else if (opt == "STOP") { ev = {Modo::STOP_CRITICO, false, false}; syn = Entradas{8.0f, NA, NA}; }
+        else if (opt == "Peligro Poste") {
+          // Alterna como en producción (500 ms cada fase): STOP invertido ↔ alineación
+          syn = Entradas{NA, 12.0f, 30.0f};
+          if (((frame_counter / 5) % 2) == 1) { ev = {Modo::POSTE_PELIGRO, false, false}; }
+          else { ev = {Modo::ALIN_DESV_IZQ, false, true}; }
+        }
+        else if (opt == "Inactividad") { ev = {Modo::INACTIVIDAD_READY, false, false}; syn = Entradas{8.0f, NA, NA}; }
+        else if (opt == "Manual") {
+          // Distancias ingresadas a mano: 0 (o NaN) = sin eco. A diferencia de
+          // las opciones fijas, se evalúa la máquina de estados REAL (con su
+          // histéresis y temporizadores) para ver cómo reacciona el sistema.
+          float pf = id(prueba_fondo).state;
+          float pi = id(prueba_izq).state;
+          float pd = id(prueba_der).state;
+          syn = Entradas{
+            (!isnan(pf) && pf > 0.0f) ? pf : NA,
+            (!isnan(pi) && pi > 0.0f) ? pi : NA,
+            (!isnan(pd) && pd > 0.0f) ? pd : NA};
+          ev = evalua_modo(syn, ahora);
+        }
+        ent = syn;
+        // Publica sintéticos solo al cambiar de opción (round-robin pausado: no hay pelea).
+        // OJO: se usa internal_send_state_to_frontend (bypass de filtros), NO
+        // publish_state: los sintéticos ya vienen en cm y publish_state los
+        // pasaría otra vez por el multiply x100 + la mediana x5 (22 -> 2200
+        // en la web, mezclado con lecturas reales viejas).
+        if (opt != last_opt) {
+          last_opt = opt;
+          id(sensor_fondo).internal_send_state_to_frontend(syn.fondo);
+          id(sensor_izq).internal_send_state_to_frontend(syn.izq);
+          id(sensor_der).internal_send_state_to_frontend(syn.der);
+        }
+        if (opt == "Manual") {
+          // En Manual los valores cambian sin cambiar de opción: republicar
+          // solo cuando alguna distancia manual cambió (evita spam cada 100 ms).
+          static float pub_f = NAN, pub_i = NAN, pub_d = NAN;
+          auto dist_changed = [](float a, float b) {
+            if (isnan(a) && isnan(b)) return false;
+            if (isnan(a) || isnan(b)) return true;
+            return fabsf(a - b) > 0.001f;
+          };
+          if (dist_changed(syn.fondo, pub_f) || dist_changed(syn.izq, pub_i) || dist_changed(syn.der, pub_d)) {
+            pub_f = syn.fondo; pub_i = syn.izq; pub_d = syn.der;
+            id(sensor_fondo).internal_send_state_to_frontend(syn.fondo);
+            id(sensor_izq).internal_send_state_to_frontend(syn.izq);
+            id(sensor_der).internal_send_state_to_frontend(syn.der);
+          }
+        }
+        dibuja_modo(ev.modo, ent, ev.dev_der, ev.dev_izq);
+      } else {
+        if (estaba_en_prueba) {
+          // Al salir de prueba: resembrar referencias para no disparar falsos eventos
+          estaba_en_prueba = false;
+          last_opt = "";
+          id(distancia_fondo_previa) = ent.fondo;
+          id(estatico_desde_ms) = ahora;
+        }
+        ev = evalua_modo(ent, ahora);
+        dibuja_modo(ev.modo, ent, ev.dev_der, ev.dev_izq);
       }
 
-      // 7. ESTADO REPOSO / REPAUSO GENERAL
-      print_ready_prompt();
-
-      publish_modo("En Espera / Sistema Listo");
-      publish_pantalla("[   R E A D Y   ]");
+      // Textos publicados por modo (idénticos a los originales; prueba añade sufijo)
+      std::string ms, ps;
+      char buf_pub[44];
+      switch (ev.modo) {
+        case Modo::ARRANQUE_LISTO:
+          ms = "En Espera / Listo (Arranque)"; ps = "[   R E A D Y   ]"; break;
+        case Modo::RETROCESO:
+          ms = "Retroceso / Salida"; ps = "[      vv      ]"; break;
+        case Modo::ALIN_CENTRADA:
+        case Modo::ALIN_DESV_DER:
+        case Modo::ALIN_DESV_IZQ:
+          ms = "Alineación Lateral";
+          if (ev.dev_der) { snprintf(buf_pub, sizeof(buf_pub), "[ %.0fcm << : ║ %.0fcm ]", ent.izq, ent.der); }
+          else if (ev.dev_izq) { snprintf(buf_pub, sizeof(buf_pub), "[ %.0fcm >> : ║ %.0fcm ]", ent.izq, ent.der); }
+          else { snprintf(buf_pub, sizeof(buf_pub), "[ %.0fcm | : | %.0fcm ]", ent.izq, ent.der); }
+          ps = buf_pub; break;
+        case Modo::POSTE_PELIGRO:
+          ms = "Alineación - Peligro Poste"; ps = "[  S T O P  ]"; break;
+        case Modo::STOP_CRITICO:
+          ms = "Parada Crítica (STOP)"; ps = "[  S T O P  ]"; break;
+        case Modo::INACTIVIDAD_READY:
+          ms = "Estacionado (Pausa Inactividad)"; ps = "[   R E A D Y   ]"; break;
+        case Modo::APROX_NORMAL:
+          ms = "Aproximación - Normal";
+          snprintf(buf_pub, sizeof(buf_pub), "«   %.0f cm   »", ent.fondo); ps = buf_pub; break;
+        case Modo::APROX_PRECAUCION:
+          ms = "Aproximación - Precaución";
+          snprintf(buf_pub, sizeof(buf_pub), "«   %.0f cm   »", ent.fondo); ps = buf_pub; break;
+        case Modo::APROX_ALERTA:
+          ms = "Aproximación - Alerta";
+          snprintf(buf_pub, sizeof(buf_pub), "«   %.0f cm   »", ent.fondo); ps = buf_pub; break;
+        case Modo::REPOSO_READY:
+        default:
+          ms = "En Espera / Sistema Listo"; ps = "[   R E A D Y   ]"; break;
+      }
+      if (en_prueba) { ms += " (Prueba)"; }
+      publish_modo(ms.c_str());
+      publish_pantalla(ps.c_str());
