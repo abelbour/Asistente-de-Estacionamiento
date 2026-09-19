@@ -89,8 +89,27 @@ main.wrap { padding-top: 0.75rem; }
 .badge.bad { border-color: var(--bad); } .badge.info { border-color: var(--pico-primary-border); }
 
 #garageSvg { width: 100%; height: auto; display: block; }
-#matrix { width: 100%; height: auto; display: block; border-radius: 0.6rem;
-  background: #05070b; image-rendering: pixelated; margin-bottom: 0.75rem; }
+
+/* Panel de estado (formato normal, mismos estados del display) */
+#dpanel { border: 1px solid var(--pico-muted-border-color); border-radius: 0.9rem;
+  padding: 0.7rem 0.9rem; text-align: center; margin-bottom: 0.75rem; }
+#dpanel.ok { border-color: var(--ok); }
+#dpanel.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+#dpanel.info { border-color: var(--pico-primary-border); }
+#dpanel.stop { border-color: var(--bad); background: var(--bad); color: #fff; }
+#dpanel.stop .dp-sub { color: rgba(255, 255, 255, 0.85); }
+.dp-state { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--pico-muted-color); }
+#dpanel.ok .dp-state { color: var(--ok); }
+#dpanel.warn .dp-state { color: var(--warn); }
+#dpanel.info .dp-state { color: var(--pico-primary); }
+#dpanel.stop .dp-state { color: #fff; }
+.dp-main { font-size: 2.1rem; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+#dpanel.stop .dp-main { color: #fff; }
+.dp-sub { font-size: 0.85rem; color: var(--pico-muted-color); min-height: 1.2em; }
+.dp-bar { height: 0.5rem; border-radius: 999px; background: var(--pico-muted-border-color);
+  overflow: hidden; margin-top: 0.5rem; }
+.dp-bar > div { height: 100%; width: 0%; background: var(--amb); transition: width 0.25s; }
 
 #logPre { max-height: 12rem; overflow: auto; font-size: 0.72rem; white-space: pre-wrap; }
 .small { font-size: 0.8rem; }

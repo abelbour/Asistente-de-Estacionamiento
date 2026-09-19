@@ -1,7 +1,7 @@
 /* Cochera PWA — cachea solo assets del mismo origen; la API del equipo siempre va a red. */
 /* IMPORTANTE: subir la versión de CACHE en cada cambio de web/ (si no, el
    navegador sigue sirviendo los archivos viejos y parece que "no cambió nada"). */
-const CACHE = "cochera-v28";
+const CACHE = "cochera-v29";
 const ASSETS = ["./index.html", "./styles.css", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

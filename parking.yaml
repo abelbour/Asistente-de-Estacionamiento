@@ -2,11 +2,19 @@ esphome:
   # El nombre define la dirección mDNS: http://garage.local (cuando está en la red del hogar)
   name: garage
   friendly_name: Asistente de Estacionamiento Autónomo
+  on_boot:
+    priority: 600
+    then:
+      - lambda: |-
+          bool abierto = id(reed_porton).state;
+          if (abierto) id(rele_fondo).turn_on();
+          else id(rele_fondo).turn_off();
 
 esp8266:
   board: nodemcuv2
 
 logger:
+  baud_rate: 0 # libera GPIO1/TX y GPIO3/RX para rele/reed (sacrifica log USB, mantiene OTA/web)
 
 # Telemetría para el modal Sistema del dashboard (heap, loop, reset). Cada 30 s.
 debug:
@@ -14,12 +22,11 @@ debug:
 
 # Servidor Web local + API para el dashboard (ver carpeta web/).
 # allowed_origins "*" permite que la página (cualquier origen) lea estados y envíe comandos.
-# version 1: interfaz tabla liviana (menos flash/RAM en ESP8266); la API REST/events no depende de la versión.
-# NOTA: v1 está deprecada y se elimina en 2027.1.0 -> migrar a v2 en ese momento.
+# version 2: API REST/events idéntica a v1; v1 está deprecada y se elimina en 2027.1.0 (ya migrado).
 # enable_private_network_access: Chrome exige preflight PNA para página pública -> equipo local.
 web_server:
   port: 80
-  version: 1
+  version: 2
   enable_private_network_access: true
   allowed_origins:
     - "*"
@@ -27,8 +34,18 @@ web_server:
 wifi:
   # Sin SSID/clave en el YAML: la red del hogar se carga vía portal cautivo.
   # Si el router no está disponible, levanta el AP de abajo (abierto, solo setup).
+  id: connection
+  networks:
+  use_address: 192.168.1.223
+  min_auth_mode: WPA2 
+  reboot_timeout: 0s
   ap:
-    ssid: "Asistente-Cochera-AP"
+    ssid: "Garage"
+    manual_ip: 
+      static_ip: 192.168.1.1
+      gateway: 192.168.1.1
+      subnet: 255.255.255.0
+    ap_timeout: 30s
 
 captive_portal:
 
@@ -230,8 +247,45 @@ number:
     max_value: 200
     step: 1
 
+# Reed portón (NO a GND) en GPIO3/RX + relé fondo en GPIO1/TX (HW-482 LOW)
+# GPIO1/TX glitch HIGH en boot = relé OFF seguro con inverted:true
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO3
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Porton"
+    id: reed_porton
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      then:
+        - switch.turn_on: rele_fondo
+    on_release:
+      then:
+        - switch.turn_off: rele_fondo
+    on_state:
+      then:
+        - lambda: |-
+            // Publica estado para debug web (opcional)
+            ESP_LOGD("porton", "Porton %s", x ? "ABIERTO" : "CERRADO");
+
+output:
+  - platform: gpio
+    pin: GPIO1
+    id: relay_out
+    inverted: true
+
 # Interruptor para activar/desactivar la alerta de poste (activada por defecto)
 switch:
+  - platform: output
+    name: "Rele Fondo"
+    id: rele_fondo
+    output: relay_out
+    restore_mode: ALWAYS_OFF
+
   - platform: template
     name: "Alerta Poste Lateral"
     id: sw_poste
@@ -273,6 +327,9 @@ select:
 button:
   - platform: restart
     name: "Reiniciar"
+    id: device_restart
+  - platform: factory_reset
+    name: "Resetear a fabrica"
 
 # Sensores Ultrasonido HC-SR04 (disparo secuencial round-robin + salida en cm)
 # Fondo: trigger en GPIO16 (salida OK) y echo en GPIO12 (con interrupciones).
@@ -342,6 +399,7 @@ sensor:
     update_interval: 30s
   - platform: wifi_signal
     name: "WiFi"
+    id: wifi_dbm
     update_interval: 30s
 
 # Disparo secuencial por turnos (round-robin cada 70 ms -> cada sensor se mide cada 210 ms)
@@ -407,6 +465,7 @@ text:
     initial_value: "Cochera"
     min_length: 1
     max_length: 64
+    mode: TEXT
 
 # Bus SPI y Matriz LED MAX7219 (GPIO14 dedicado a CLK, CS en GPIO2)
 spi:
@@ -592,12 +651,92 @@ display:
           }
         }
       };
-      // Prompt retro: READY_ con guion parpadeante (6 glifos x 5px = x 1..30)
-      auto print_ready_prompt = [&]() {
-        draw_text58(1, 0, "READY");
-        if ((frame_counter / 5) % 2 == 0) {
-          draw_text58(26, 0, "_");
+      // WiFi 6x8 de anim/wifi.gif (0x1e = 011110 = 4px sólidos) y anim/no_wifi.gif
+      // Wifi: filas 0 y 7 vacías, filas 1-6 cols 1-4 sólidos (6x8 total, margen 1px)
+      static const uint8_t WIFI_GIF[8] = {
+        0b000000, // 0x00 ......
+        0b011110, // 0x1e .####.
+        0b011110, // 0x1e .####.
+        0b011110, // 0x1e .####.
+        0b011110, // 0x1e .####.
+        0b011110, // 0x1e .####.
+        0b011110, // 0x1e .####.
+        0b000000, // 0x00 ......
+      };
+      static const uint8_t NOWIFI_GIF[8] = {
+        0b101010, // 0x2a #.#.#.
+        0b011111, // 0x1f .#####
+        0b111110, // 0x3e #####.
+        0b011111, // 0x1f .#####
+        0b111110, // 0x3e #####.
+        0b011111, // 0x1f .#####
+        0b111110, // 0x3e #####.
+        0b010101, // 0x15 .#.#.#
+      };
+      // Espera: radar punto 2x2 rebotando en 8..30 a 100ms/paso + WiFi 6x8 en 0,0.
+      // Solo en espera (REPOSO/ARRANQUE/INACTIVIDAD); otros modos usan pantalla completa.
+      // - STA conectado: wifi lleno parcial según RSSI (wifi_dbm, 4 niveles)
+      // - Sin STA y sin AP: nowifi.gif fijo
+      // - AP activo sin STA: wifi lleno parpadeando 500ms
+      auto draw_idle_standby = [&]() {
+        // --- WiFi 6x8 en 0,0 con margen 1px ---
+        bool sta_connected = esphome::wifi::global_wifi_component->is_connected();
+        bool ap_active = (WiFi.getMode() & WIFI_AP) != 0;
+        bool ap_only = ap_active && !sta_connected;
+        bool blink_on = ((frame_counter / 5) % 2 == 0); // 500 ms ON/OFF para AP
+        if (ap_only) {
+          // AP: cuadrado lleno (wifi.gif) parpadeando
+          if (blink_on) {
+            for (int r = 0; r < 8; r++) {
+              uint8_t bits = WIFI_GIF[r];
+              for (int c = 0; c < 6; c++) {
+                if (bits & (1 << (5 - c))) it.draw_pixel_at(c, r, esphome::display::COLOR_ON);
+              }
+            }
+          }
+        } else if (!sta_connected) {
+          // Sin conexión: nowifi.gif
+          for (int r = 0; r < 8; r++) {
+            uint8_t bits = NOWIFI_GIF[r];
+            for (int c = 0; c < 6; c++) {
+              if (bits & (1 << (5 - c))) it.draw_pixel_at(c, r, esphome::display::COLOR_ON);
+            }
+          }
+        } else {
+          // Conectado: llenado según wifi_dbm (4 niveles, id wifi_dbm)
+          float rssi = id(wifi_dbm).state;
+          int fill_rows = 6; // default lleno si NaN
+          if (!isnan(rssi)) {
+            if (rssi > -55) fill_rows = 6;       // excelente: 6/6
+            else if (rssi > -67) fill_rows = 4;  // bueno: 4/6
+            else if (rssi > -75) fill_rows = 3;  // regular: 3/6
+            else if (rssi > -82) fill_rows = 2;  // débil: 2/6
+            else fill_rows = 1;                  // muy débil: 1/6
+          }
+          // Dibuja solo filas inferiores del rectángulo 4x6 (filas 1-6, cols 1-4)
+          // 6 filas totales en y=1..6; fill_rows desde abajo: y_start = 7 - fill_rows
+          int y_start = 7 - fill_rows; // 1 para 6, 3 para 4, 4 para 3, 5 para 2, 6 para 1
+          if (y_start < 1) y_start = 1;
+          for (int r = y_start; r <= 6; r++) {
+            for (int c = 1; c <= 4; c++) {
+              it.draw_pixel_at(c, r, esphome::display::COLOR_ON);
+            }
+          }
         }
+        // --- Radar punto 2x2 en 8..31 (reservado 0-7 para WiFi) ---
+        // Rango 8..30 inclusive (2px ancho cabe hasta 31), rebote KITT a 1px/frame =100ms
+        const int R_MIN = 8;
+        const int R_MAX = 30;
+        const int R_RANGE = R_MAX - R_MIN; // 22
+        const int R_PERIOD = R_RANGE * 2;  // 44
+        int p = frame_counter % R_PERIOD;
+        if (p > R_RANGE) p = R_PERIOD - p;
+        int rx = R_MIN + p;
+        // centrado vertical en filas 3-4 (2px alto) — 4 píxeles ON
+        it.draw_pixel_at(rx, 3, esphome::display::COLOR_ON);
+        it.draw_pixel_at(rx + 1, 3, esphome::display::COLOR_ON);
+        it.draw_pixel_at(rx, 4, esphome::display::COLOR_ON);
+        it.draw_pixel_at(rx + 1, 4, esphome::display::COLOR_ON);
       };
 
       // === Máquina de estados: evaluación separada del dibujado ===
@@ -836,7 +975,7 @@ display:
           case Modo::ARRANQUE_LISTO:
           case Modo::INACTIVIDAD_READY:
           default:
-            print_ready_prompt();
+            draw_idle_standby();
             break;
         }
       };
@@ -930,7 +1069,7 @@ display:
       char buf_pub[44];
       switch (ev.modo) {
         case Modo::ARRANQUE_LISTO:
-          ms = "En Espera / Listo (Arranque)"; ps = "[   R E A D Y   ]"; break;
+          ms = "En Espera / Listo (Arranque)"; ps = "[ wifi | ● radar ]"; break;
         case Modo::RETROCESO:
           ms = "Retroceso / Salida"; ps = "[      vv      ]"; break;
         case Modo::ALIN_CENTRADA:
@@ -946,7 +1085,7 @@ display:
         case Modo::STOP_CRITICO:
           ms = "Parada Crítica (STOP)"; ps = "[  S T O P  ]"; break;
         case Modo::INACTIVIDAD_READY:
-          ms = "Estacionado (Pausa Inactividad)"; ps = "[   R E A D Y   ]"; break;
+          ms = "Estacionado (Pausa Inactividad)"; ps = "[ wifi | ● radar ]"; break;
         case Modo::APROX_NORMAL:
           ms = "Aproximación - Normal";
           snprintf(buf_pub, sizeof(buf_pub), "«   %.0f cm   »", ent.fondo); ps = buf_pub; break;
@@ -958,7 +1097,7 @@ display:
           snprintf(buf_pub, sizeof(buf_pub), "«   %.0f cm   »", ent.fondo); ps = buf_pub; break;
         case Modo::REPOSO_READY:
         default:
-          ms = "En Espera / Sistema Listo"; ps = "[   R E A D Y   ]"; break;
+          ms = "En Espera / Sistema Listo"; ps = "[ wifi | ● radar ]"; break;
       }
       if (en_prueba) { ms += " (Prueba)"; }
       publish_modo(ms.c_str());

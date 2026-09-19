@@ -50,7 +50,12 @@
   </header>
 
   <main class="wrap">
-    <canvas id="matrix" width="256" height="64"></canvas>
+    <section id="dpanel" aria-live="polite" aria-label="Estado del equipo">
+      <div id="dpState" class="dp-state">—</div>
+      <div id="dpMain" class="dp-main">—</div>
+      <div id="dpSub" class="dp-sub"></div>
+      <div id="dpBar" class="dp-bar" hidden><div id="dpFill"></div></div>
+    </section>
     <svg id="garageSvg" viewBox="-17 0 337 460" role="img" aria-label="Esquema cenital de la cochera"></svg>
     <div class="modeline"><span id="modeBadge" class="badge">—</span></div>
   </main>
@@ -73,16 +78,6 @@
         </div>
         <h3>Dimensiones (solo esquema)</h3>
         <div id="cfgDims"></div>
-        <h3>Pantalla</h3>
-        <label for="ledColorSel">Color de LED <small>(solo esta vista)</small></label>
-        <select id="ledColorSel" aria-label="Color de LED">
-          <option value="azul">Azul</option>
-          <option value="rojo">Rojo</option>
-          <option value="verde">Verde</option>
-          <option value="blanco">Blanco</option>
-          <option value="ambar">Ámbar</option>
-        </select>
-        <p class="warn" id="cfgWarn" hidden></p>
         <h3>Cochera</h3>
         <label for="nameInput">Nombre <small>(barra superior y pestaña)</small></label>
         <div class="row-inline">

@@ -24,17 +24,18 @@ El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de dio
 
 | Estado | Condición de Activación | Representación Matriz LED ($8\times32$) | Simulación Web UI |
 | :--- | :--- | :--- | :--- |
-| **Arranque / Reposo** | Auto estático al encender o fuera de rango | Prompt retro **`READY_`** con cursor parpadeante (500 ms) | `[   R E A D Y   ]` |
+| **Arranque / Reposo** | Auto estático al encender o fuera de rango | **Radar espera**: punto 2×2 rebotando en x 8→30 a 1 px/frame (100 ms, KITT) + icono WiFi 8×8 en 0–7 (solo en espera, `parking.yaml:608-648`) | `[ wifi | ● radar ]` |
 | **Retroceso / Salida** | Distancia de fondo aumentando ($> +1\text{ cm}$) | Misma marquesina `^` invertida verticalmente (baja) en laterales x=1 y x=24, ~300 ms/frame | `[      vv      ]` |
 | **Alineación Lateral** | Ambos sensores laterales $\le 50\text{ cm}$ (+ histéresis 2 cm) | Arriba: barra de progreso sólida desde el centro a toda altura (filas 0–7, largo = magnitud del desvío); en desvío (> `umbral_desvio_chev`, histéresis 1 cm) marquesina 7×5 del usuario a ~100 ms/frame (tablas `CHEVDER` verbatim del GIF, espejada a la izquierda) del lado libre a la altura de los dígitos (filas 1–5), apuntando la corrección. Abajo: distancias 3x5 centradas verticalmente (filas 1–5) contra los márgenes; los píxeles tapados por la barra se ven invertidos (calado en negativo, p. ej. `30 | 30`) | `[ 45cm << : ║ 30cm ]` (valores en vivo) |
 | **Aproximación Normal** | Distancia de fondo entre $50\text{ cm}$ y $150\text{ cm}$ | Distancia 3x6 a la izq + marquesina vertical `^` 7×8 del usuario (tablas `CHEVUP` verbatim del GIF, ~100 ms/frame; x2 en precaución/alerta) + barra de progreso 0–23 L→R (100% en x=23, col 24 libre; cala en negativo números, no el chevrón) | `«   120 cm   »` |
 | **Precaución / Alerta**| Distancia de fondo entre $10\text{ cm}$ y $50\text{ cm}$ | Idem anterior con marquesina a mitad de velocidad (x2) y parpadeo de brillo en Alerta ($\le 20\text{ cm}$, 12↔7 como en STOP pero sin inversión) | `«   30 cm   »` |
 | **STOP Crítico** | Distancia de fondo $\le 10\text{ cm}$ | Texto **`STOP`** gigante como mapa de bits libre de 32×8 a todo ancho (tabla `STOP32`, bit 31 = x0) con inversión fija y parpadeo de brillo (12 ↔ 7) | `[  S T O P  ]` |
 | **Peligro Poste Lateral** | Algún lateral $\le 15\text{ cm}$ (estando en alineación, con switch activado) | Alterna pantalla de alineación con **`STOP`** invertido fijo (500 ms cada una) | `[  S T O P  ]` / valores en vivo |
-| **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a prompt **`READY_`** (sin alertas, brillo máximo) | `[   R E A D Y   ]` |
-| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ **y** sin presencia lateral (sin eco: sensor tapado o fuera de alcance) | Igual que reposo: prompt **`READY_`** (conserva temporizadores, no congela inactividad) | `[   R E A D Y   ]` |
+| **Inactividad Post-STOP**| Vehículo estático $\le 10\text{ cm}$ durante $> 10\text{ s}$ | Pasa de `STOP` a **radar espera** (mismo que reposo, brillo máximo, sin inversión) | `[ wifi | ● radar ]` |
+| **Sin lectura** | Sensor fondo `NaN` o $\le 0$ **y** sin presencia lateral (sin eco: sensor tapado o fuera de alcance) | Igual que reposo: **radar** + WiFi (conserva temporizadores, no congela inactividad) | `[ wifi | ● radar ]` |
 
-> La matriz se refresca cada 100 ms (`update_interval`); la marquesina `^` corre con velocidad continua interpolada entre umbrales (1 frame/tick en `Umbral Inicio`, 0.5 en `Umbral Precaución`, sin saltos; fase fraccional acumulada) y la marquesina lateral a ~100 ms/frame. Los gráficos (dígitos 3x6 del usuario en `num.gif`, chevrones y STOP gigante) se renderizan mediante primitivas de píxeles/mapas de bits directos (`draw_pixel_at`), sin depender de archivos de fuentes `.bdf`. Los números contra el margen derecho van 1 px más a la derecha para quedar contra el borde (2 dígitos en x=25, 1 dígito en x=29).
+> **Espera (radar + WiFi 6×8 en 0,0):** icono `anim/wifi.gif` 6×8 (`WIFI_GIF` 0x1e, 4×6 sólidos, `parking.yaml:609-651`) con llenado según `wifi_dbm` (`id:wifi_dbm` `parking.yaml:356`): `> -55 dBm`=6/6, `> -67`=4/6, `> -75`=3/6, `> -82`=2/6, resto 1/6; si desconectado sin AP usa `anim/no_wifi.gif` 6×8 (`NOWIFI_GIF`), si `WIFI_AP` sin STA parpadea lleno 500 ms (`frame/5`). Punto radar 2×2 en `8→30` a 100 ms/paso, filas 3–4, rebote KITT (periodo 44 = 4,4 s). Solo en `REPOSO_READY`/`ARRANQUE_LISTO`/`INACTIVIDAD_READY` y `Sin lectura`.
+> La matriz se refresca cada 100 ms (`update_interval`); la marquesina `^` corre con velocidad continua interpolada entre umbrales (1 frame/tick en `Umbral Inicio`, 0.5 en `Umbral Precaución`, sin saltos; fase fraccional acumulada) y la marquesina lateral a ~100 ms/frame. Los gráficos (dígitos 3x6 del usuario en `num.gif`, chevrones, STOP gigante y ahora radar/WiFi) se renderizan mediante primitivas de píxeles/mapas de bits directos (`draw_pixel_at`), sin depender de archivos de fuentes `.bdf`. Los números contra el margen derecho van 1 px más a la derecha para quedar contra el borde (2 dígitos en x=25, 1 dígito en x=29).
 
 ### Máquina de estados (enum `Modo` en el `lambda` del display)
 
@@ -126,27 +127,30 @@ Entidad `button` (`platform: restart`, nombre `Reiniciar`) en la interfaz web pr
 
 ```
 
-### ⚡ Arquitectura de Energía (corte total, $0\text{ W}$ en reposo)
+### ⚡ Arquitectura de Energía (USB permanente + corte periféricos por GPIO)
 
-Topología: fuente $5\text{ V}$/2 A y módulo HW-482 junto al MCU en el **fondo**; en el **portón** solo laterales + reed (nodo tonto). El reed va en serie con el VCC del módulo (por el Par4 del UTP) y el pin IN va puenteado a GND (disparo LOW permanente):
+Topología: cargador USB `5V/2A → USB NodeMCU (VIN)` siempre vivo; `VIN` alimenta `COM` y `VCC` del HW-482 en el **fondo**, `GPIO1/TX → IN` (LOW pega). En el **portón** solo laterales + reed `NO` a `GND` (nodo tonto). `Par4` ya no lleva potencia:
 
 ```text
-FONDO                                              PORTÓN
-fuente 5V ──┬──► COM relé (módulo HW-482, jumper JD-VCC puesto)
-            ├──► Par4A ──► reed ──► Par4B ──► VCC módulo
-            │       (IN del módulo puenteado a GND: siempre "disparado" con VCC)
-            ├──► GND módulo
-            └──► NO ──► riel 5V nodo fondo (MCU/display/fondo)
-                     └──► Par1 ──► VCC laterales
+FONDO (VIN=5V USB)                              PORTÓN
+VIN ──┬──► COM HW-482 (jumper JD-VCC puesto)
+      ├──► VCC HW-482
+      ├──► GND HW-482 + GND común
+      │    GPIO1/TX ──► IN HW-482 (inverted:true, HIGH=off seguro en boot)
+      │    GPIO3/RX ──► Par4A ──► reed NO ──► GND @portón (+jumper desconectable para flasheo USB)
+      │         (INPUT_PULLUP inverted:true, 50ms debounce, Porton ON=Abierto)
+      └──► NO ──► riel 5V conmutado (periféricos)
+               ├──► VCC MAX7219/display + sensor fondo
+               └──► Par1 ──► VCC laterales + láseres
 ```
 
-* **Portón abierto** (imán junto al reed) → módulo energizado → IN ya en LOW → relé pega → viven laterales + fondo.
-* **Portón cerrado** → reed abre → módulo apagado (hasta su LED de power muere) → todo muerto. Consumo en reposo: **cero real**.
-* El reed maneja ~80 mA totales del módulo (bobina + opto + LEDs), dentro de su rating típico 0.5 A. Sin transistor ni GPIO.
+* **Portón abierto** `reed cerrado → GPIO3 LOW → Porton ON` → `GPIO1 LOW` → relé pega → viven periféricos (`Porton Abierto` en plano: hueco entre postes).
+* **Portón cerrado** `reed abierto → GPIO3 HIGH → Porton OFF` → `GPIO1 HIGH` → relé abre → periféricos muertos pero `NodeMCU` sigue vivo por `USB` (plano: línea gruesa `WALL currentColor` entre `X(-gateW/2)→X(gateW/2)` a `Y(0)`; sin dato inicial `null` → punteada `6 4` `opacity 0.6`).
+* **Jumper Par4:** para `esphome run` por `USB` con portón abierto, quitar jumper 2s (GPIO3 a GND bloquea `RX` del bootloader).
 * **Sin diodo externo**: el HW-482 ya trae flyback en placa en paralelo con la bobina.
-* **Bulk 470 µF + 100 nF** en el riel del nodo fondo (patas cortas): cabalgan el rebote de contactos al energizar y las ráfagas WiFi del ESP8266 (~400 mA). Una fuente de 2 A sobra en promedio pero no responde en microsegundos; para eso están los capacitores locales.
-* Boot de 2–4 s al abrir el portón antes del `READY_` (el auto igual espera al portón).
-* Los LEDs del módulo (power + canal) sirven de diagnóstico a simple vista: con portón abierto, ambos encendidos.
+* **Bulk 470 µF + 100 nF en VIN/GND del NodeMCU** (patas cortas) para ráfagas WiFi `~400mA`; `100nF` opcional en riel conmutado junto a `MAX7219` si hay flicker en `STOP`. Fuente `2A` de pared sobra, pero no responde en µs; capacitores locales sí. Con `VIN` como fuente, medir `~4.8V` en carga `STOP` invertido.
+* Boot: `NodeMCU` siempre vivo, `on_boot priority 600` lee `reed` ySync `rele_fondo` (`que lea`); sin espera `2–4s` como en `0W`.
+* LEDs HW-482: `power` siempre con `VIN`, `canal` solo con portón abierto.
 
 ### Nota sobre relé y láseres (lógica cableada, sin software)
 
@@ -172,13 +176,13 @@ Echo HC-SR04 (5V) ───[ 1 kΩ ]───┬───► GPIO ESP8266 (3.21V
 ### Distribución de Pares en Cable UTP Cat 5e (un tendido fondo→portón, 8/8 hilos)
 
 ```text
- [ Par 1: Azul / Blanco-Azul ]     ──► 5V conmutado + GND (potencia laterales)
+ [ Par 1: Azul / Blanco-Azul ]     ──► 5V conmutado + GND (potencia laterales + láseres)
  [ Par 2: Naranja / Blanco-Naranja] ──► Trig Izq (GPIO0) + Echo Izq (GPIO5)
  [ Par 3: Verde / Blanco-Verde ]   ──► Trig Der (GPIO15) + Echo Der (GPIO4)
- [ Par 4: Marrón / Blanco-Marrón ] ──► Lazo reed: 5V ida + retorno a VCC módulo (~80 mA)
+ [ Par 4: Marrón / Blanco-Marrón ] ──► GPIO3/RX ──► reed NO ──► GND @portón (jumper, 50ms debounce)
 
 ```
-(8/8 hilos usados, sin reserva.)
+(8/8 hilos usados, sin reserva. Par4 ya no lleva 5V/80mA, solo señal 3.3V/70µA.)
 
 * Los divisores de echo van **atrás, junto al MCU** (protegen el GPIO donde entra la señal).
 * Los pulsos de trigger/echo por ~6 m de Cat5e no requieren cambios de timings (retardos de ns, flancos tolerables).
@@ -226,8 +230,8 @@ esphome run parking.yaml
 
 
 4. **Primer Arranque y Red:**
-El YAML no trae ninguna credencial: ni WiFi ni OTA. Al primer arranque el equipo levanta el Punto de Acceso abierto `Asistente-Cochera-AP` (solo existe sin router, para el setup inicial). Conéctate desde el teléfono, abre `http://192.168.4.1` (portal cautivo) y carga tu red WiFi: queda guardada en flash y no hay que repetirlo. Desde entonces el equipo se une a tu red y responde siempre en **`http://garage.local`** (mDNS; funciona en iPhone, macOS, Windows 10+ y Chrome en Android). Si el router no está disponible, vuelve solo al modo AP. Nota: el OTA queda sin clave (cualquiera en tu LAN podría flashear el equipo); en una red hogareña normal es aceptable, en red compartida conviene agregar `password` al bloque `ota:`.
-Puedes conectarte desde cualquier teléfono o PC a `http://garage.local` (o a `http://192.168.4.1` en modo AP) para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
+El YAML no trae ninguna credencial: ni WiFi ni OTA (`wifi: networks:` vacío + `captive_portal:`). Al primer arranque el equipo levanta el Punto de Acceso abierto `Garage` en `192.168.1.1/24` (`manual_ip: 192.168.1.1`, `ap_timeout: 30s` solo para setup) por `http://192.168.1.1` (portal cautivo). Conéctate desde el teléfono y carga tu red WiFi: queda guardada en flash y no hay que repetirlo. Desde entonces el equipo se une a tu red y responde siempre en **`http://garage.local`** (`esphome.name: garage`, mDNS; funciona en iPhone, macOS, Windows 10+ y Chrome en Android) y también en la IP fija de desarrollo `use_address: 192.168.1.223` si está en esa subred. Si el router no está disponible, vuelve solo al modo AP (`reboot_timeout: 0s` evita reinicios por pérdida de WiFi, crítico para el corte por reed). El WiFi exige `min_auth_mode: WPA2`. Nota: el OTA queda sin clave (`ota: esphome` + `web_server` para `POST /update` del dashboard) — cualquiera en tu LAN podría flashear el equipo; en red hogareña normal es aceptable, en red compartida conviene agregar `password` al bloque `ota:`.
+Puedes conectarte desde cualquier teléfono o PC a `http://garage.local` (o a `http://192.168.1.1` en modo AP) para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
 
 5. **Verificación de Funcionamiento:**
 Al energizar debe mostrar el prompt `READY_` (con cursor parpadeante; si no hay eco, igual: sin estado de fallo dedicado). En la web (`Sensor Fondo/Izquierda/Derecha`, en cm, 0 decimales, ~5 Hz por round-robin) verifica las lecturas en vivo: `Unknown` = sin eco (normal sin obstáculo), y la mediana tarda ~1 s en asentarse al mover la mano (normal, no es lag de red). Prueba de rango mínimo: mano a 5, 10, 15 y 30 cm del fondo — si a ≤10 cm lee estable, los módulos responden como clásico y el tema R4/R5 queda archivado. Prueba de potencia: con portón cerrado, multímetro en el riel = 0 V; abierto, secuencia mano→barra L→R→`STOP`. Con `esphome logs parking.yaml --device /dev/ttyUSB0` (ajusta el puerto) puedes ver el estado interno en tiempo real.
@@ -238,12 +242,79 @@ Al energizar debe mostrar el prompt `READY_` (con cursor parpadeante; si no hay 
 
 Interfaz de monitoreo amigable (mobile-first, tema claro/oscuro, español) que habla con el equipo vía REST + Event Source de ESPHome (`https://esphome.io/web-api/`). Carpeta autocontenida y sin compilación: `index.html` + `app.js` + `styles.css` (+ `manifest.webmanifest`, `sw.js`, `icon.svg` para PWA/QR). Copiarla al repo de hosting cuando se defina.
 
-* Requiere en firmware `web_server.allowed_origins: ["*"]` + `enable_private_network_access: true` (ya configurados) + reflasheo; si no, el navegador bloquea todo por CORS/PNA. La interfaz propia del equipo está fijada en `version: 1` (liviana para el ESP8266, solo respaldo/depuración; la API no depende de la versión, pero v1 se elimina en 2027.1.0 y habrá que migrar a v2).
+* Requiere en firmware `web_server.version: 2` + `allowed_origins: ["*"]` + `enable_private_network_access: true` (ya configurados en `parking.yaml:20-25`) + reflasheo; si no, el navegador bloquea todo por CORS/PNA. La interfaz propia del equipo usa `version: 2` (API REST/events idéntica a v1; v1 está deprecada y se elimina en 2027.1.0, por eso ya se migró).
 * Acceso por `http://garage.local` (editable, con escaneo de subred y `?garage=` para compartir). Si la página va por HTTPS, permitir contenido inseguro para el sitio (patrón probado del reloj).
 * Topbar mínima (título = `Nombre Cochera` + LEDs **TX**/**RX** + menú ⋮; sin subtítulo): la pill de conexión solo se muestra sin conexión, conectado vive dentro del menú. Menú con Conexión (con estado), Registro (diálogo modal con Limpiar), Sistema, Estado avanzado, Compartir, Tema y Configuración. Nombre también en Configuración → Cochera y en la pestaña.
-* Cuerpo directo sin tarjetas ni títulos: matriz 32×8 con **puntos redondos** arriba (color de LED configurable en Configuración → Pantalla, solo vista local), esquema cenital abajo y badge de modo centrado debajo (sin texto de simulacro ni pie de página).
-* Esquema cenital a escala: fondo arriba y portón abajo, interior 20% más ancho que el portón (vano) con muros gruesos en un solo trazo (uniones suaves, al ras de los postes), umbrales como anillos por tramo entre umbrales (sin líneas, cada uno con su color sombreado y su distancia en vertical al borde interno intercalado izq/der, centrada en su tramo y sin "cm"), lecturas 50% más grandes y FUERA de las paredes (laterales a los costados, fondo arriba y con su línea al centro) en verde→amarillo→rojo según desvío y umbrales (fondo por tier; laterales: lado cercano ≤ poste en rojo, desvío > chevron en amarillo de ese lado), cotas SÓLIDAS solo para lo medido por sensores (con terminaciones perpendiculares) y línea DE PUNTOS solo entre cada cota y su número para vincularlas; dimensiones fijas sin líneas y semitransparentes, auto que se funde a transparente donde asome del portón (máscara con degradado), zona objetivo gris (morro a Umbral STOP, tamaño = Largo/Ancho Auto, sombreada con borde punteado semitransparente) y auto con los paths vectoriales reales de `temp/car.svg` a escala (sin PNGs externos ni gradientes, ver `web/car.svg`; carrocería = `Ancho Auto`, total = `Ancho Auto con espejos` del firmware, solo vista: los sensores miran por debajo de los espejos; el tope lateral también usa el total con espejos) posicionado por fondo + laterales (oculto sin detección), cotas numéricas junto a cada elemento (sin palabras, rotadas donde va) y las 3 distancias en grande sobre el gráfico (se eliminaron las tarjetas individuales). Si el fondo aún no tiene eco pero los laterales sí, el auto se estima con la cola en el portón; sin ningún eco solo queda la zona objetivo.
+* Cuerpo directo sin tarjetas ni títulos: panel de estado en formato normal arriba (mismos estados del display: LISTO, aproximación con barra, alineación con flechas de corrección, banner rojo de STOP) y esquema cenital abajo con badge de modo centrado debajo.
+* Esquema cenital a escala: fondo arriba y portón abajo, interior 20% más ancho que el portón (vano) con muros gruesos en un solo trazo (uniones suaves, al ras de los postes), umbrales como anillos por tramo entre umbrales (sin líneas, cada uno con su color sombreado y su distancia en vertical al borde interno intercalado izq/der, centrada en su tramo y sin "cm"), lecturas 50% más grandes y FUERA de las paredes (laterales a los costados, fondo arriba y con su línea al centro) en verde→amarillo→rojo según desvío y umbrales (fondo por tier; laterales: lado cercano ≤ poste en rojo, desvío > chevron en amarillo de ese lado), cotas SÓLIDAS solo para lo medido por sensores (con terminaciones perpendiculares) y línea DE PUNTOS solo entre cada cota y su número para vincularlas; dimensiones fijas sin líneas y semitransparentes, auto que se funde a transparente donde asome del portón (máscara con degradado), zona objetivo gris (morro a Umbral STOP, tamaño = Largo/Ancho Auto, sombreada con borde punteado semitransparente) y auto con los paths vectoriales reales de `temp/car.svg` a escala (sin PNGs externos ni gradientes, ver `web/car.svg`; carrocería = `Ancho Auto`, total = `Ancho Auto con espejos` del firmware, solo vista: los sensores miran por debajo de los espejos; el tope lateral también usa el total con espejos) posicionado por fondo + laterales (oculto sin detección), cotas numéricas junto a cada elemento (sin palabras, rotadas donde va) y las 3 distancias en grande sobre el gráfico (se eliminaron las tarjetas individuales). Si el fondo aún no tiene eco pero los laterales sí, se muestra la punta del auto entre los postes con el 20% del largo adentro, hasta que el fondo empiece a dar distancia; sin ningún eco solo queda la zona objetivo.
 * Diálogo **Configuración** (sliders + número por campo, con **bloqueo** ante umbrales incoherentes o espejos ≤ carrocería): umbrales, Alineación, `Alerta Poste Lateral`, Dimensiones (incl. con espejos), Pantalla y Cochera (nombre).
 * Modal **Sistema**: IP, WiFi (SSID/señal/BSSID/MAC), versión ESPHome, fecha de firmware, uptime, motivo de reinicio, CPU, heap/bloque/fragmentación/loop, mensajes y latencia (telemetría `debug` + `uptime` + `wifi_signal` + `wifi_info` + `version` del firmware).
 * Diálogo **Estado avanzado** (estilo del proyecto del reloj): `select` **Modo Prueba** (las 13 opciones del firmware vía `POST /select/Modo Prueba/set?option=`, con badge `PRUEBA · …` en la tarjeta Posición; con `Manual` aparecen sliders de distancias manuales) + botón **Reiniciar equipo** (con confirmación, `POST /button/Reiniciar/press`, como el `modalRebootBtn` del reloj).
-* Diálogo **Firmware**: compara la fecha de compilación instalada contra lo publicado en GitHub (configurar `FW_REPO` en `app.js`) y permite subir un `.bin` directo al equipo (`POST /update`, plataforma OTA `web_server` habilitada en firmware).
+* Diálogo **Firmware**: compara la fecha de compilación instalada contra lo publicado en GitHub (configurar `FW_REPO` en `app.js`) y permite subir un `.bin` directo al equipo (`POST /update`, plataformas OTA `esphome` + `web_server` habilitadas en `parking.yaml:45-47`).
+
+---
+
+## 📝 Análisis de cambios en `parking.yaml` (diff vs. commit inicial `84ec682`)
+
+> Esta sección documenta todos los ajustes que hiciste para que el YAML se ajuste a tu necesidad real. Referencias `parking.yaml:<línea>`.
+
+### 1. Identidad y arranque (`parking.yaml:1-7`)
+- `esphome.name: asistente-cochera` → `garage` (`parking.yaml:3`). Define mDNS `http://garage.local`; más corto y alineado con SSID del AP.
+- Eliminado `on_boot: priority -100 -> flag_inicio = true` (`parking.yaml:4-5` original). Ahora `globals.flag_inicio` inicia en `true` por `initial_value` y se consume en `evalua_modo()` (`parking.yaml:706-713`) sin `on_boot`. Simplifica boot y evita carrera con `restore_value`.
+
+### 2. Infraestructura web / OTA / debug (`parking.yaml:9-48`)
+- Nuevo bloque `debug: update_interval: 30s` (`parking.yaml:12-13`) para telemetría del modal Sistema (heap, loop, reset).
+- `web_server:` pasa de solo `port: 80` a `parking.yaml:20-25` con `version: 2`, `enable_private_network_access: true`, `allowed_origins: ["*"]` — requerido por dashboard `web/` en origen distinto y PNA de Chrome.
+- `wifi:` (`parking.yaml:27-41`): `id: connection`, `networks:` (vacío, credentials vía portal), `use_address: 192.168.1.223` (IP fija de desarrollo), `min_auth_mode: WPA2`, `reboot_timeout: 0s` (no reiniciar si el WiFi cae — crítico con el reed que corta energía), `ap: ssid: "Garage"` (antes `Asistente-Cochera-AP`), `manual_ip: 192.168.1.1/24`, `ap_timeout: 30s`.
+- Nuevo `ota:` dual (`parking.yaml:45-47`): `platform: esphome` (CLI) + `platform: web_server` (POST /update del diálogo Firmware).
+- Eliminado `font: TomThumb.bdf` (`parking.yaml:49-50`). Los 10 glifos `READYSTOP_` van embebidos como tablas `GLYPH58` 5x8 en el lambda (`parking.yaml:555-592`, extraídos de `spleen-5x8.bdf`). YAML autocontenido, sin `.bdf` que subir.
+
+### 3. Estado interno (`parking.yaml:52-73`)
+- Nuevo `globals.alerta_poste_on: bool restore_value: yes initial true` (`parking.yaml:69-73`) — persiste el switch de poste entre cortes del portón.
+
+### 4. Umbrales y parámetros (`parking.yaml:74-242`)
+- `restore_value: true` en todos los `number` existentes (antes volátiles). Lo calibrado sobrevive al corte del reed.
+- `umbral_inicio.max_value: 300` → `250` (`parking.yaml:121`) coherente con alcance real HC-SR04.
+- **Nuevos umbrales**: `umbral_desvio_chev` 5 cm (1–20/0.5, `parking.yaml:96-104`) y `umbral_poste` 15 cm (5–40/1, `parking.yaml:106-114`) — separan la sensibilidad de chevrón y peligro de poste del umbral lateral.
+- **Dimensiones solo-dashboard** (no intervienen en lógica, solo esquema cenital `web/`): `ancho_porton` 200, `ancho_auto` 170, `largo_garage` 500, `largo_auto` 420, `ancho_auto_espejos` 190 (`parking.yaml:158-210`), todos `restore_value: true`.
+- **Prueba manual** (`restore_value: false`): `prueba_fondo` 0–400, `prueba_izq` 0–200, `prueba_der` 0–200 (`parking.yaml:211-242`, `0 = sin eco`). Sin restore para que nunca quede forzado tras un corte.
+
+### 5. Entidades nuevas (`parking.yaml:244-289`)
+- `switch: Alerta Poste Lateral` (`parking.yaml:244-253`) template sobre `alerta_poste_on`.
+- `select: Modo Prueba` (`parking.yaml:260-280`) 13 opciones (`Automático` + 12 forzados), `restore_value: false`, `initial_option: Automático`. Pausa el round-robin y publica sintéticos.
+- `button:` `Reiniciar` (`restart`, `parking.yaml:284-286`) y `Resetear a fabrica` (`factory_reset`, `parking.yaml:287-288`).
+
+### 6. Sensores (`parking.yaml:290-359`)
+- **Reasignación de pines** (corrige bug ESP8266):
+  - Fondo: `trigger GPIO12 → GPIO16` (`parking.yaml:297`), `echo GPIO14 → GPIO12` (`parking.yaml:298`) — GPIO16 no tiene interrupciones, no sirve como echo.
+  - Izquierda: `trigger GPIO12 (compartido) → GPIO0` (`parking.yaml:312`)
+  - Derecha: `trigger GPIO12 (compartido) → GPIO15` (`parking.yaml:327`)
+  - Echo izq/der se mantienen en `GPIO5`/`GPIO4`. Cada trigger ahora es dedicado → elimina contención.
+- `update_interval: 100ms` → `never` en los 3 (`parking.yaml:301/314/331`): disparo manual por `interval`.
+- `unit_of_measurement: "cm"` + `accuracy_decimals: 0` + `filters: multiply x100 + median window 5` (`parking.yaml:304-339`) — salida directa en cm con suavizado.
+- Nuevos sensores telemetría: `debug` (heap/block/fragmentation/loop/cpu), `uptime` 30s, `wifi_signal` 30s (`parking.yaml:341-359`).
+
+### 7. Disparo secuencial (`parking.yaml:361-376`)
+- Nuevo `interval: 70ms` round-robin fondo→izq→der (cada sensor cada 210 ms, `parking.yaml:361-376`) con `turno` estático; si `modo_prueba != Automático` retorna sin disparar. Garantiza 70 ms entre ecos y evita crosstalk por el UTP.
+
+### 8. Text sensors / text (`parking.yaml:378-424`)
+- `text_sensor` añade `debug: device/reset_reason`, `version`, `wifi_info` (IP/SSID/BSSID/MAC), y `template: Firmware` con `__DATE__ " " __TIME__` (`parking.yaml:389-410`) para el modal Sistema.
+- Nuevo `text: Nombre Cochera` (`parking.yaml:414-424`) template `restore_value: true` 1–64 chars — etiqueta del dashboard.
+
+### 9. SPI / display base (`parking.yaml:426-436`)
+- `spi: clk_pin GPIO14` dedicado (antes compartido con echo fondo), `mosi GPIO13` sin cambios.
+- `display: cs_pin GPIO15 → GPIO2` (`parking.yaml:432`) — libera GPIO15 (strapping) y GPIO14 para CLK.
+- `scroll_enable: false` + `update_interval: 100ms` (`parking.yaml:434-436`) — refresco fijo a 10 Hz.
+
+### 10. Lambda de la matriz — reescritura completa (`parking.yaml:437-979`)
+- **Gráficos embebidos** (`parking.yaml:467-615`): `DIG36` 3x6 (de `num.gif`), `CHEVUP` 7x8 (4 frames), `CHEVDER` 7x5 + `mirror7`, `GLYPH58` 5x8 (READYSTOP_), `STOP32` 32x8 bitmap del STOP gigante, `draw_digit36/draw_num36/draw_chevup/draw_chevder/draw_text58/draw_stop_big/print_ready_prompt` con `draw_pixel_at` y calado en negativo (`carve_x0/x1`) donde la barra tapa dígitos/chevrones.
+- **Máquina de estados estructurada** (`parking.yaml:617-856`): `enum Modo` 12 estados, `struct Entradas/Eval`, `evalua_modo()` (decisión pura + histéresis/temporizadores) y `dibuja_modo()` (render) — refactor bit-idéntico de la cadena `if…return` original.
+- **Histéresis** (`parking.yaml:629-649`): `HIST_CM = 2.0` genérica y `1.0` para desvíos (`hyst_le`/`hyst_gt`, `h_lat/h_stop/h_alerta/h_prec/h_ini/h_poste/h_dev_*`). Ej. STOP entra ≤10 y sale >12; desvío entra >5 y sale <4.
+- **Precedencia documentada** (`parking.yaml:651-744`): alineación (absoluta) → fondo inválido → arranque → retroceso → STOP/inactividad → aproximación → reposo. Alineación con sub-fase `POSTE_PELIGRO` (`parking.yaml:672-673`) alternando 500 ms si `alerta_poste_on && h_poste`.
+- **Optimización de publicación** (`parking.yaml:446-461`): `publish_modo/pantalla` solo si el string cambió (evita churn de heap en `web_server`).
+- **Aproximación**: barra `0..23` (`parking.yaml:819-830`), `chev_phase` fraccional continua (`parking.yaml:834-846`, 0.5→1.0 frames/tick entre `umbral_precaucion` e `umbral_inicio`), parpadeo `APROX_ALERTA` 12↔7.
+- **Alineación**: barra sólida desde centro a toda altura, posiciones `15/16` centradas, chevron `CHEVDER` espejado según lado (`parking.yaml:755-791`), distancias `draw_num36` con calado.
+- **STOP/Poste/Ready**: `invert_on_off(true)+intensity 12` y parpadeo `12↔7` (`parking.yaml:799-807`), `READY_` con `_` parpadeante 500 ms (`parking.yaml:610-615`).
+- **Modo Prueba** (`parking.yaml:858-940`): congela round-robin, tabla de `syn` por opción (NaN sin eco), `Manual` evalúa máquina real con `prueba_*`, publicación vía `internal_send_state_to_frontend` (bypass `multiply` + mediana), republicación solo al cambiar opción o distancia manual, y al salir resiembra `distancia_fondo_previa` + `estatico_desde_ms`.
+
+> Todos los cambios mantienen compatibilidad con el hardware existente (NodeMCU v2 + 4×MAX7219 + 3×HC-SR04) y con el dashboard `web/`; solo requieren reflasheo y, si se viene de la versión inicial, purgar el `.bdf` y recalibrar umbrales (ahora persisten).

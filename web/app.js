@@ -14,8 +14,8 @@ const TEXT_NOMBRE = "Nombre Cochera";
 const SWITCH_POSTE = "Alerta Poste Lateral";
 const SEL_PRUEBA = "Modo Prueba";
 const BTN_RESET = "Reiniciar";
+const BINARY_PORTON = "Porton";
 const TEXT_MODO = "Modo del Sistema";
-const TEXT_SIM = "Simulación de Pantalla LED (8x32)";
 const DEFAULTS = {
   "Tiempo Inactividad STOP (s)": 10, "Umbral Lateral (cm)": 50, "Umbral Desvío Chevron (cm)": 5,
   "Umbral Poste Lateral (cm)": 15, "Umbral Inicio (cm)": 150, "Umbral Precaucion (cm)": 50,
@@ -45,9 +45,9 @@ const S = {
   sensor: { fondo: NaN, izq: NaN, der: NaN },
   number: Object.assign({}, DEFAULTS),
   numCfg: {}, // name -> {min,max,step}
-  poste: true, modo: "", sim: "",
+  poste: true, modo: "",
   prueba: "Automático", nombre: "Cochera",
-  ledColor: (function () { try { return localStorage.getItem("cochera_led") || "azul"; } catch (e) { return "azul"; } })(),
+  porton: null, // true=Abierto ON, false=Cerrado OFF, null=desconocido
   sys: {}, msgs: 0, lastEv: 0,
   log: [], tried: new Map(),
 };
@@ -66,12 +66,12 @@ const LOOKUP = {};
 Object.entries(SENSORS).forEach(([k, n]) => { LOOKUP["sensor" + norm(n)] = ["sensor", k]; });
 [...NUMBERS_DIST, ...NUMBERS_LAT, ...NUMBERS_DIM, ...NUMBERS_TEST].forEach((n) => { LOOKUP["number" + norm(n)] = ["number", n]; });
 LOOKUP["switch" + norm(SWITCH_POSTE)] = ["switch", "poste"];
+LOOKUP["binary_sensor" + norm(BINARY_PORTON)] = ["binary", "porton"];
+LOOKUP["binarysensor" + norm(BINARY_PORTON)] = ["binary", "porton"];
 LOOKUP["text" + norm(TEXT_NOMBRE)] = ["text", "nombre"];
 LOOKUP["select" + norm(SEL_PRUEBA)] = ["select", "prueba"];
 LOOKUP["textsensor" + norm(TEXT_MODO)] = ["text", "modo"];
-LOOKUP["textsensor" + norm(TEXT_SIM)] = ["text", "sim"];
 LOOKUP["text_sensor" + norm(TEXT_MODO)] = ["text", "modo"];
-LOOKUP["text_sensor" + norm(TEXT_SIM)] = ["text", "sim"];
 Object.entries(SYS_TEXT).forEach(([n, k]) => {
   LOOKUP["textsensor" + norm(n)] = ["sys", "t" + k];
   LOOKUP["text_sensor" + norm(n)] = ["sys", "t" + k];
@@ -109,6 +109,13 @@ function route(domain, name, data) {
     if (name === SWITCH_POSTE) { S.poste = !!data.value; return true; }
     return false;
   }
+  if (domain === "binary_sensor") {
+    if (name === BINARY_PORTON) {
+      const on = data.state !== undefined ? String(data.state).toUpperCase() === "ON" : !!data.value;
+      S.porton = on; return true;
+    }
+    return false;
+  }
   if (domain === "select") {
     // El estado del select llega como value (y en algunas versiones como state)
     if (name === SEL_PRUEBA) {
@@ -124,7 +131,6 @@ function route(domain, name, data) {
   }
   if (domain === "text_sensor" || domain === "textsensor") {
     if (name === TEXT_MODO) { S.modo = String(data.state || ""); return true; }
-    if (name === TEXT_SIM) { S.sim = String(data.state || ""); return true; }
     if (SYS_TEXT[name] !== undefined) { S.sys[SYS_TEXT[name]] = String(data.state || ""); return true; }
     return false;
   }
@@ -140,6 +146,7 @@ function routeLegacy(domain, objectId, data) {
     void name; S.number[key] = parseFloat(data.value); return true;
   }
   if (d === "switch") { S.poste = !!data.value; return true; }
+  if (d === "binary") { const on = data.state !== undefined ? String(data.state).toUpperCase() === "ON" : !!data.value; S.porton = on; return true; }
   if (d === "select") {
     const v = data.value !== undefined ? data.value : data.state;
     if (v !== undefined) S.prueba = String(v);
@@ -147,8 +154,6 @@ function routeLegacy(domain, objectId, data) {
   }
   if (d === "text") {
     if (key === "modo") { S.modo = String(data.state || ""); return true; }
-    if (key === "sim") { S.sim = String(data.state || ""); return true; }
-    if (key === "nombre") { S.nombre = String(data.state !== undefined ? data.state : data.value || ""); return true; }
   }
   if (d === "sys") {
     if (key[0] === "t") { S.sys[key.slice(1)] = String(data.state || ""); return true; }
@@ -403,6 +408,12 @@ function renderSvg() {
   s += `<path d="M ${X(-gateW / 2).toFixed(1)} ${Y(0).toFixed(1)} L ${X(-vanoW / 2).toFixed(1)} ${Y(0).toFixed(1)} L ${X(-vanoW / 2).toFixed(1)} ${Y(L).toFixed(1)} L ${X(vanoW / 2).toFixed(1)} ${Y(L).toFixed(1)} L ${X(vanoW / 2).toFixed(1)} ${Y(0).toFixed(1)} L ${X(gateW / 2).toFixed(1)} ${Y(0).toFixed(1)}" fill="none" stroke="currentColor" stroke-opacity="0.85" stroke-width="${WALL}" stroke-linejoin="round" stroke-linecap="butt"/>`;
   s += `<rect x="${(X(-gateW / 2) - 2).toFixed(1)}" y="${(Y(0) - 7).toFixed(1)}" width="4" height="14" fill="${col}"/>`;
   s += `<rect x="${(X(gateW / 2) - 2).toFixed(1)}" y="${(Y(0) - 7).toFixed(1)}" width="4" height="14" fill="${col}"/>`;
+  // Portón: línea gruesa entre postes. Cerrado=sólida, abierto=hueco, null=punteada (como muros, currentColor)
+  if (S.porton === false) {
+    s += `<line x1="${X(-gateW / 2).toFixed(1)}" y1="${Y(0).toFixed(1)}" x2="${X(gateW / 2).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="currentColor" stroke-opacity="0.95" stroke-width="${WALL}" stroke-linecap="butt"/>`;
+  } else if (S.porton === null) {
+    s += `<line x1="${X(-gateW / 2).toFixed(1)}" y1="${Y(0).toFixed(1)}" x2="${X(gateW / 2).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="currentColor" stroke-opacity="0.60" stroke-width="${WALL}" stroke-linecap="butt" stroke-dasharray="6 4"/>`;
+  }
   s += `<text x="${(X(0)).toFixed(1)}" y="${(Y(0) + 30).toFixed(1)}" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.45">${gateW}cm</text>`;
   s += `<text x="${(X(-vanoW / 2) + 34).toFixed(1)}" y="${(Y(L) - 10).toFixed(1)}" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.45">${Math.round(vanoW)}cm</text>`;
   // cota vertical del largo del garage, junto al muro izquierdo
@@ -440,8 +451,10 @@ function renderSvg() {
   // lateral (los espejos son lo primero que toca muros/postes).
   // viewBox -519 -7 42767 74687 = bounding total con espejos.
   // Longitudinal por Sensor Fondo (morro a distancia f de la pared);
-  // lateral por (der-izq)/2 sobre lecturas de carrocería. Sin detección
-  // (sin fondo ni pareja lateral): se oculta el auto y queda la zona objetivo.
+  // lateral por (der-izq)/2 sobre lecturas de carrocería. Sin fondo pero
+  // con pareja lateral: la punta entre los postes (20% adentro). Sin
+  // detección (sin fondo ni pareja lateral): se oculta el auto y queda
+  // la zona objetivo.
   const withMirrors = mirrorW(carW);
   const hasFondo = !isNaN(f) && f > 0;
   const hasLatPair = !isNaN(iz) && iz > 0 && !isNaN(de) && de > 0;
@@ -451,7 +464,10 @@ function renderSvg() {
   if (showCar) {
     if (hasLatPair) off = Math.max(-maxOff, Math.min(maxOff, (de - iz) / 2));
     carH = Math.min(carL * sy, Math.abs(Y(L) - Y(0)) - 10);
-    frontY = hasFondo ? Y(Math.max(-30, Math.min(L, L - f))) : Y(0) - carH;
+    // Sin eco de fondo pero con pareja lateral: el auto aún no alcanzó el
+    // fondo (fuera de alcance). Se muestra la punta con el 20% del largo
+    // adentro del portón, hasta que el fondo empiece a dar distancia.
+    frontY = hasFondo ? Y(Math.max(-30, Math.min(L, L - f))) : Y(0) - carH * 0.2;
     totalW = withMirrors * sx;
     const x0 = X(off) - totalW / 2;
     // Ajuste horizontal del dibujo sobre su centro (x=20864): la carrocería
@@ -507,7 +523,7 @@ function renderSvg() {
       + `</g></svg>`;
   }
   const cota = (v, anchor, x, y, fs, c) => (!validD(v) || !c)
-    ? `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${fs}" fill="currentColor" opacity="0.45" text-anchor="${anchor}">—</text>`
+    ? `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${fs}" fill="currentColor" opacity="0.45" text-anchor="${anchor}">n/a</text>`
     : `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${fs}" font-weight="bold" fill="${c}" text-anchor="${anchor}"${HALO}>${Math.round(v)}</text>`;
   // Lecturas FUERA de las paredes, fuente 50% mayor (13→20, 14→21).
   const ySenLbl = Y(25) + 7;
@@ -519,7 +535,9 @@ function renderSvg() {
     // Fondo: pared→morro CENTRADA (el valor va arriba).
     // La línea DE PUNTOS va solo entre cada cota y su número, para
     // vincularlas visualmente.
-    const ySen = Y(25);
+    // Sin fondo (punta entre postes): la cota lateral va a la altura del
+    // portón Y(0), donde está el morro; con fondo va a Y(25) como siempre.
+    const ySen = hasFondo ? Y(25) : Y(0);
     const flankL = X(off) - (carW * sx) / 2, flankR = X(off) + (carW * sx) / 2;
     const tickV = (x, y, c) => `<line x1="${x.toFixed(1)}" y1="${(y - 5).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y + 5).toFixed(1)}" stroke="${c}" stroke-width="1.5"/>`;
     const tickH = (x, y, c) => `<line x1="${(x - 5).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + 5).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${c}" stroke-width="1.5"/>`;
@@ -541,12 +559,16 @@ function renderSvg() {
     }
     s += hasFondo
       ? `<text x="${(X(0)).toFixed(1)}" y="${(Y(L) - 10).toFixed(1)}" font-size="21" font-weight="bold" fill="${fCol}" text-anchor="middle"${HALO}>${Math.round(f)}</text>`
-      : `<text x="${(X(0)).toFixed(1)}" y="${(Y(L) - 10).toFixed(1)}" font-size="11" fill="currentColor" opacity="0.7" text-anchor="middle">sin eco</text>`;
-    // cotas del auto junto a él: ancho bajo la cola, largo rotado al centro
-    s += `<text x="${(X(off)).toFixed(1)}" y="${(frontY + carH + 14).toFixed(1)}" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.45">${carW}cm</text>`;
-    {
-      const lx = X(off), ly = frontY + carH / 2;
-      s += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" transform="rotate(-90 ${lx.toFixed(1)} ${ly.toFixed(1)})" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.45">${carL}cm</text>`;
+      : `<text x="${(X(0)).toFixed(1)}" y="${(Y(L) - 10).toFixed(1)}" font-size="11" fill="currentColor" opacity="0.7" text-anchor="middle">n/a</text>`;
+    // cotas del auto junto a él: ancho bajo la cola, largo rotado al centro.
+    // Solo con fondo (auto posicionado); con la punta entre postes la cola
+    // queda fuera de vista y estas etiquetas caerían fuera del esquema.
+    if (hasFondo) {
+      s += `<text x="${(X(off)).toFixed(1)}" y="${(frontY + carH + 14).toFixed(1)}" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.45">${carW}cm</text>`;
+      {
+        const lx = X(off), ly = frontY + carH / 2;
+        s += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" transform="rotate(-90 ${lx.toFixed(1)} ${ly.toFixed(1)})" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.45">${carL}cm</text>`;
+      }
     }
   } else {
     s += `<text x="${(X(0)).toFixed(1)}" y="${(tgtFrontY + tgtH / 2).toFixed(1)}" font-size="11" font-weight="bold" fill="#9aa0a6" text-anchor="middle" opacity="0.9">sin auto</text>`;
@@ -563,187 +585,56 @@ function renderSvg() {
   }
 }
 
-/* ---------- Matriz 32x8 aproximada ---------- */
-const MC = $("matrix").getContext("2d");
-const PX = 8;
-const DIG36 = [ // digitos 3x6 del usuario (num.gif, tira 1-9,0)
-  [0x7,0x5,0x5,0x5,0x5,0x7],[0x6,0x2,0x2,0x2,0x2,0x7],[0x7,0x1,0x7,0x4,0x4,0x7],
-  [0x7,0x1,0x3,0x1,0x1,0x7],[0x5,0x5,0x5,0x7,0x1,0x1],[0x7,0x4,0x7,0x1,0x1,0x7],
-  [0x7,0x4,0x7,0x5,0x5,0x7],[0x7,0x1,0x1,0x1,0x1,0x1],[0x7,0x5,0x7,0x5,0x5,0x7],
-  [0x7,0x5,0x5,0x7,0x1,0x7],
-];
-const GLYPH = { R:[0,28,18,18,28,18,18,0], E:[0,14,16,28,16,16,14,0], A:[0,12,18,18,30,18,18,0],
-  D:[0,28,18,18,18,18,28,0], Y:[0,18,18,18,14,2,28,0], S:[0,14,16,12,2,2,28,0],
-  T:[0,31,4,4,4,4,4,0], O:[0,12,18,18,18,18,12,0], P:[0,28,18,18,28,16,16,0], _: [0,0,0,0,0,0,0,30] };
-const CHEV_C = { right: [0, 1, 2, 1, 0], left: [2, 1, 0, 1, 2] };
-/* Marquesina lateral 7x5 del usuario (d==0: filas 0,4; d==1: 1,3; d==2: fila 2) */
-const CHEVUP = [ // 4 frames 7x8, idénticos al firmware
-  [28,54,99,73,28,54,99,73],
-  [54,99,73,28,54,99,73,28],
-  [99,73,28,54,99,73,28,54],
-  [73,28,54,99,73,28,54,99],
-];
-const CHEVDER = [ // 4 frames 7x5, idénticos al firmware
-  [102,51,25,51,102],
-  [51,25,12,25,51],
-  [25,76,102,76,25],
-  [76,102,51,102,76],
-];
-const mirror7 = (v) => ((v & 0x40) >> 6) | ((v & 0x20) >> 4) | ((v & 0x10) >> 2) |
-  (v & 8) | ((v & 4) << 2) | ((v & 2) << 4) | ((v & 1) << 6);
-/* STOP gigante 32x8 (bit 31 = x0), idéntico al firmware */
-const STOP32 = [0x00000000, 0x7EFEFEFE, 0x6018C2C2, 0x7F18C2C2,
-                0x0318C2FE, 0x0318C2C0, 0x7F18FEC0, 0x00000000];
-/* Paleta de LED (configurable en Configuración → Pantalla, default azul) */
-const LED_COLORS = {
-  azul:   { on: "#4d8dff", dim: "rgba(77,141,255,0.45)" },
-  rojo:   { on: "#ff4646", dim: "rgba(255,70,70,0.45)" },
-  verde:  { on: "#3ddc74", dim: "rgba(61,220,116,0.45)" },
-  blanco: { on: "#eef3f8", dim: "rgba(238,243,248,0.45)" },
-  ambar:  { on: "#ffb224", dim: "rgba(255,178,36,0.45)" },
-};
-const OFF_BG = "#05070b", OFF_DOT = "#141a23";
-const ledOn = () => (LED_COLORS[S.ledColor] || LED_COLORS.azul).on;
-const ledDim = () => (LED_COLORS[S.ledColor] || LED_COLORS.azul).dim;
-function dot(x, y, style) {
-  if (x < 0 || x > 31 || y < 0 || y > 7) return;
-  MC.fillStyle = style;
-  MC.beginPath();
-  MC.arc(x * PX + PX / 2, y * PX + PX / 2, PX / 2 - 0.8, 0, 6.2832);
-  MC.fill();
-}
-function mpx(x, y, on, dim) {
-  dot(x, y, on ? (dim ? ledDim() : ledOn()) : OFF_DOT);
-}
-function mclear(inv, dimAll) {
-  MC.fillStyle = OFF_BG;
-  MC.fillRect(0, 0, 256, 64);
-  const st = inv ? (dimAll ? ledDim() : ledOn()) : OFF_DOT;
-  for (let y = 0; y < 8; y++) for (let x = 0; x < 32; x++) dot(x, y, st);
-}
-function mtext(x, y, str, inv) {
-  let cx = x;
-  for (const ch of str) {
-    const g = GLYPH[ch];
-    if (g) for (let r = 0; r < 8; r++) for (let c = 0; c < 5; c++)
-      if (g[r] & (1 << (4 - c))) {
-        dot(cx + c, y + r, inv ? OFF_BG : ledOn());
-      }
-    cx += 5;
-  }
-}
-function mvline(x, y0, h, inv) {
-  for (let y = y0; y < y0 + h && y < 8; y++) if (y >= 0) dot(x, y, inv ? OFF_BG : ledOn());
-}
-function renderMatrix() {
-  const m = S.modo, N = S.number;
+/* ---------- Panel de estado (formato normal, mismos estados del display) ---------- */
+function renderPanel() {
+  const m = S.modo || "";
+  const N = S.number;
   const f = S.sensor.fondo, iz = S.sensor.izq, de = S.sensor.der;
-  const t = Math.floor(Date.now() / 500) % 2 === 0;
-  const inv = m.indexOf("STOP") >= 0 || m.indexOf("Peligro Poste") >= 0;
-  if (m.indexOf("STOP") >= 0 || m.indexOf("Peligro Poste") >= 0) {
-    const dim = (m.indexOf("Parada Crítica") >= 0) && (Math.floor(Date.now() / 300) % 2 === 1);
-    mclear(true, dim);
-    // STOP gigante: mapa de bits libre de 32x8 (bit 31 = x0)
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 32; x++)
-      if (STOP32[y] & (1 << (31 - x))) dot(x, y, OFF_BG);
+  const panel = $("dpanel");
+  const r = (v) => Math.round(v) + " cm";
+  const okD = (v) => !isNaN(v) && v > 0;
+  let cls = "", state = "LISTO", mhtml = "En espera", shtml = "", frac = -1;
+  if (m.indexOf("Parada Crítica") >= 0 || m.indexOf("Peligro Poste") >= 0) {
+    cls = "stop"; state = "STOP";
+    mhtml = okD(f) ? r(f) : "—";
+    if (m.indexOf("Peligro Poste") >= 0 && okD(iz) && okD(de)) shtml = `Izq ${r(iz)} · Der ${r(de)} · poste`;
+    else if (okD(f)) shtml = "Distancia crítica al fondo";
   } else if (m.indexOf("Retroceso") >= 0) {
-    mclear(false);
-    // Misma marquesina ^ invertida verticalmente: baja
-    const fir = Math.floor(Date.now() / 300) % 4;
-    [1, 24].forEach((x) => {
-      for (let r = 0; r < 8; r++) {
-        const bits = CHEVUP[fir][7 - r];
-        for (let c = 0; c < 7; c++) if (bits & (1 << (6 - c))) mpx(x + c, r, true);
-      }
-    });
+    cls = "info"; state = "RETROCESO · SALIDA";
+    mhtml = okD(f) ? r(f) : "—";
+    shtml = "El vehículo está saliendo";
   } else if (m.indexOf("Alineación") >= 0) {
-    mclear(false);
-    const dif = (!isNaN(iz) && !isNaN(de)) ? (iz - de) * 10 : 0;
-    const lim = N["Umbral Desvío Chevron (cm)"] || 5;
-    const dev = Math.abs(iz - de) > lim;
-    let x0 = 15, x1 = 16;
-    if (dev) {
-      const pos = Math.max(0, Math.min(31, 15 + Math.round(dif / 20)));
-      if (pos > 16) { x0 = 16; x1 = pos; } else { x0 = pos; x1 = 15; }
-    }
-    for (let x = x0; x <= x1; x++) mvline(x, 0, 8, false);
-    const carve = [x0, x1];
-    const drawN = (x, v) => {
-      v = Math.max(0, Math.min(99, Math.round(v || 0)));
-      const ds = v >= 10 ? [Math.floor(v / 10), v % 10] : [v];
-      ds.forEach((d, i) => {
-        for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++)
-          if (DIG36[d][r] & (1 << (2 - c))) {
-            const px = x + i * 4 + c;
-            const inBar = px >= carve[0] && px <= carve[1];
-            dot(px, 1 + r, inBar ? OFF_BG : ledOn());
-          }
-      });
-    };
-    drawN(0, iz); drawN(isNaN(de) || de >= 10 ? 25 : 29, de);
-    if (dev) {
-      // Marquesina 7x5 del usuario (4 frames @~100 ms = aprox. normal); izquierda = espejo
-      const fi = Math.floor(Date.now() / 100) % 4;
-      const drawM7 = (bx, mirror) => {
-        for (let r = 0; r < 5; r++) {
-          let bits = CHEVDER[fi][r];
-          if (mirror) bits = mirror7(bits);
-          for (let c = 0; c < 7; c++) if (bits & (1 << (6 - c))) mpx(bx + c, 1 + r, true);
-        }
-      };
-      if (iz > de) drawM7(8, true); // pegado a derecha → corre a la izquierda
-      else drawM7(17, false); // pegado a izquierda → corre a la derecha
-    }
+    const desv = N["Umbral Desvío Chevron (cm)"] || 5;
+    state = "ALINEACIÓN LATERAL";
+    if (okD(iz) && okD(de)) {
+      const d = iz - de;
+      if (d > desv) { cls = "warn"; mhtml = `${r(iz)} \u25C0 ${r(de)}`; shtml = "Corregir a la izquierda"; }
+      else if (d < -desv) { cls = "warn"; mhtml = `${r(iz)} \u25B6 ${r(de)}`; shtml = "Corregir a la derecha"; }
+      else { cls = "ok"; mhtml = `${r(iz)} \u25CF ${r(de)}`; shtml = "Centrado"; }
+    } else { mhtml = "—"; shtml = "Sin lectura lateral"; }
   } else if (m.indexOf("Aproximación") >= 0) {
-    mclear(false);
     const ini = N["Umbral Inicio (cm)"] || 150, stp = N["Umbral STOP (cm)"] || 10;
-    const den = Math.max(1, ini - stp);
-    const fill = isNaN(f) ? 0 : Math.max(0, Math.min(24, Math.round((ini - f) / den * 24)));
-    for (let x = 0; x < fill; x++) mvline(x, 0, 8, false);
-    if (!isNaN(f)) {
-      const v = Math.max(0, Math.min(999, Math.round(f)));
-      const ds = String(v).split("").map(Number);
-      ds.forEach((d, i) => {
-        for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++)
-          if (DIG36[d][r] & (1 << (2 - c))) {
-            const px = i * 4 + c;
-            dot(px, 1 + r, (px < fill) ? OFF_BG : ledOn());
-          }
-      });
-    }
-    const ini7 = N["Umbral Inicio (cm)"] || 150, pre7 = N["Umbral Precaucion (cm)"] || 50;
-    // Fase continua como el firmware (el render web no es un tick fijo: avanza
-    // por tiempo real transcurrido). Velocidad 0.5..1 frames/tick interpolada.
-    const now7 = Date.now();
-    if (!S._chevLastT) S._chevLastT = now7;
-    const dt7 = Math.min(2000, Math.max(0, now7 - S._chevLastT));
-    S._chevLastT = now7;
-    let span7 = ini7 - pre7;
-    if (!(span7 >= 1)) span7 = 1;
-    let t7 = isNaN(f) ? 1 : (f - pre7) / span7;
-    t7 = Math.max(0, Math.min(1, t7));
-    S._chevPhase = (((S._chevPhase || 0) + (dt7 / 100) * (0.5 + 0.5 * t7)) % 4 + 4) % 4;
-    const fi7 = Math.floor(S._chevPhase);
-    for (let r = 0; r < 8; r++) {
-      const bits = CHEVUP[fi7][r];
-      for (let c = 0; c < 7; c++) {
-        if (bits & (1 << (6 - c))) {
-          const px = 25 + c;
-          dot(px, r, (px < fill) ? OFF_BG : ledOn());
-        }
-      }
-    }
-    if (m.indexOf("Alerta") >= 0 && (Math.floor(Date.now() / 300) % 2 === 1)) {
-      MC.fillStyle = "rgba(0,0,0,0.45)"; MC.fillRect(0, 0, 256, 64);
-    }
+    if (m.indexOf("Alerta") >= 0) { cls = "warn"; state = "APROXIMACIÓN · ALERTA"; }
+    else if (m.indexOf("Precaución") >= 0) { cls = "warn"; state = "APROXIMACIÓN · PRECAUCIÓN"; }
+    else { cls = "ok"; state = "APROXIMACIÓN · NORMAL"; }
+    mhtml = okD(f) ? r(f) : "—";
+    if (okD(f)) frac = Math.max(0, Math.min(1, (ini - f) / Math.max(1, ini - stp)));
+    shtml = `STOP a ${stp} cm`;
   } else {
-    mclear(false);
-    mtext(1, 0, "READY");
-    if (t) mtext(26, 0, "_");
+    state = "LISTO";
+    mhtml = "En espera";
+    if (okD(f)) shtml = "Fondo " + r(f);
   }
+  panel.className = cls;
+  $("dpState").textContent = state;
+  $("dpMain").textContent = mhtml;
+  $("dpSub").textContent = shtml;
+  const bar = $("dpBar");
+  bar.hidden = !(frac >= 0);
+  if (frac >= 0) $("dpFill").style.width = (frac * 100).toFixed(0) + "%";
 }
 
-function render() { renderName(); renderSvg(); renderMatrix(); renderAdv(); if ($("sysDialog").open) renderSys(); }
+function render() { renderName(); renderSvg(); renderPanel(); renderAdv(); if ($("sysDialog").open) renderSys(); }
 
 /* ---------- Nombre de la cochera (barra + pestaña) ---------- */
 function renderName() {
@@ -1173,12 +1064,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("mConn").onclick = () => menuGo(() => { renderUrlList(); openDialog("connDialog"); });
   $("logClose").onclick = () => closeDialog("logDialog");
   $("configClose").onclick = () => closeDialog("configDialog");
-  $("ledColorSel").value = S.ledColor;
-  $("ledColorSel").onchange = () => {
-    S.ledColor = $("ledColorSel").value;
-    try { localStorage.setItem("cochera_led", S.ledColor); } catch (e) {}
-    renderMatrix();
-  };
   $("connPill").onclick = () => { renderUrlList(); openDialog("connDialog"); };
   $("txrxBtn").onclick = () => { renderUrlList(); openDialog("connDialog"); };
   $("connClose").onclick = () => closeDialog("connDialog");
@@ -1224,6 +1109,5 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("securitypolicyviolation", () => {});
   setStatus("connecting");
   render();
-  setInterval(renderMatrix, 500);
   tryReconnect();
 });
