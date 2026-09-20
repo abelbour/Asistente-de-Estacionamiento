@@ -134,55 +134,33 @@ Entidad `button` (`platform: restart`, nombre `Reiniciar`) en la interfaz web pr
 
 ```mermaid
 flowchart TB
-    USB["Cargador USB-C 5V 2A"]
-    USB --> VIN["NodeMCU VIN 4.8V"]
-    USB --> GND["NodeMCU GND"]
-
-    VIN --> PPLUS["Rele PLUS VCC"]
-    VIN --> PCOM["Rele COM"]
-    GND --> PMINUS["Rele MINUS GND"]
-
-    G1["GPIO1 TX - S Rele - inverted:true - HIGH off"] --> S["Rele S IN"]
-    G3["GPIO3 RX - Reed - INPUT_PULLUP inverted - 50ms"] --> P4
-    P4["Par4 Marron - UTP - Reed NO - GND Porton"] --> REED["Reed NO + Iman"] --> GND
-
-    PCOM --> PNO["Rele NO - Riel 5V Conmutado"]
-    PNO --> CAP2["100nF NO-GND junto MAX7219"]
-    CAP2 --> GND
-    PNO --> VCCDISP["MAX7219 VCC 5V"]
-    PNO --> P1["Par1 Azul - 5V conmutado + GND"]
-    P1 --> LASER["3x Laser 5V"]
-    P1 --> LS_ECHO_PWR["Alim. HC-SR04 laterales"]
-
-    VIN --> CAP["Bulk 470uF + 100nF VIN-GND patas cortas"]
-    CAP --> GND
-
-    subgraph MCU_FONDO["Fondo - NodeMCU + MAX7219 + HC-SR04 Fondo"]
-        direction TB
-        G14["GPIO14 D5 - SPI CLK"] --> CLK["MAX7219 CLK"]
-        G13["GPIO13 D7 - SPI MOSI DIN"] --> DIN["MAX7219 DIN"]
-        G2["GPIO2 D4 - SPI CS"] --> CS["MAX7219 CS"]
-        G16["GPIO16 D0 - Trigger Fondo"] --> TRIGF["HC-SR04 Fondo TRIG"]
-        ECHOF["HC-SR04 Fondo ECHO 5V"] --> DIVF1["Divisor 1k"] --> G12["GPIO12 D6 - Echo Fondo 3.3V"]
-        DIVF1 --> DIVF2["Divisor 1.8k"] --> GND
-        VCCDISP --> GNDDISP["MAX7219 GND"] --> GND
-    end
-
-    subgraph UTP_CABLE["UTP Cat5e 6m Fondo - Porton"]
-        direction TB
-        P2["Par2 Naranja - GPIO0 D3 Trigger Izq / GPIO5 D1 Echo Izq"]
-        P3["Par3 Verde - GPIO15 D8 Trigger Der / GPIO4 D2 Echo Der"]
-    end
-
-    subgraph PORTON["Porton - Nodo tonto"]
-        direction TB
-        G0["GPIO0 D3 - Trigger Izq"] --> P2 --> LSTRIG["HC-SR04 Izq TRIG"]
-        LSECHO["HC-SR04 Izq ECHO 5V"] --> DIVL1["Divisor 1k - fondo"] --> G5["GPIO5 D1 - Echo Izq 3.3V"]
-        DIVL1 --> DIVL2["Divisor 1.8k - fondo"] --> GND
-        G15["GPIO15 D8 - Trigger Der"] --> P3 --> RSTRIG["HC-SR04 Der TRIG"]
-        RSECHO["HC-SR04 Der ECHO 5V"] --> DIVR1["Divisor 1k - fondo"] --> G4["GPIO4 D2 - Echo Der 3.3V"]
-        DIVR1 --> DIVR2["Divisor 1.8k - fondo"] --> GND
-    end
+    USB[Cargador USB 5V 2A] --> VIN[NodeMCU VIN]
+    USB --> GND[NodeMCU GND]
+    VIN --> RELE_PLUS[Rele PLUS]
+    VIN --> RELE_COM[Rele COM]
+    GND --> RELE_GND[Rele GND]
+    GPIO1[GPIO1 TX] --> RELE_S[Rele S]
+    GPIO3[GPIO3 RX] --> P4[Par4 Marron]
+    P4 --> REED[Reed NO] --> GND
+    RELE_COM --> RELE_NO[Riel 5V]
+    RELE_NO --> MAXVCC[MAX7219 VCC]
+    RELE_NO --> P1[Par1 Azul 5V]
+    P1 --> LASER[Laser 5V]
+    P1 --> LATERAL_PWR[Laterales VCC]
+    GPIO14[GPIO14] --> CLK[MAX7219 CLK]
+    GPIO13[GPIO13] --> DIN[MAX7219 DIN]
+    GPIO2[GPIO2] --> CS[MAX7219 CS]
+    GPIO16[GPIO16] --> TRIGF[Fondo TRIG]
+    ECHOF[Fondo ECHO 5V] --> DIV1[Divisor 1k] --> GPIO12[GPIO12]
+    DIV1 --> DIV2[Divisor 1.8k] --> GND
+    GPIO0[GPIO0] --> P2[Par2 Naranja] --> TRIGL[Izq TRIG]
+    ECHOL[Izq ECHO 5V] --> DIV3[Divisor 1k] --> GPIO5[GPIO5]
+    DIV3 --> DIV4[Divisor 1.8k] --> GND
+    GPIO15[GPIO15] --> P3[Par3 Verde] --> TRIGR[Der TRIG]
+    ECHOR[Der ECHO 5V] --> DIV5[Divisor 1k] --> GPIO4[GPIO4]
+    DIV5 --> DIV6[Divisor 1.8k] --> GND
+    VIN --> BULK[Bulk 470uF 100nF] --> GND
+    RELE_NO --> CAP2[Cap 100nF] --> GND
 ```
 
 #### Tabla de conexiones por dispositivo
