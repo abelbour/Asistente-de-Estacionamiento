@@ -1,6 +1,6 @@
-# 🚘 Asistente de Estacionamiento Autónomo para Cochera (Zero-Power-Draw Idle)
+# 🚘 Asistente de Estacionamiento Autónomo para Cochera (USB permanente + corte periféricos)
 
-Sistema de guiado visual de alta precisión para garajes basado en **ESPHome** sobre un microcontrolador **ESP8266 (NodeMCU v2)**. El dispositivo opera de forma **100% independiente** (sin requerir Home Assistant, dependencias de nube ni conexión continua a red Wi-Fi), ofreciendo consumo de corriente nulo ($0\text{ W}$) en reposo mediante un sistema de encendido magnético autónomo.
+Sistema de guiado visual de alta precisión para garajes basado en **ESPHome** sobre un microcontrolador **ESP8266 (NodeMCU v2)**. El dispositivo opera de forma **100% independiente** (sin requerir Home Assistant, dependencias de nube ni conexión continua a red Wi-Fi), con **NodeMCU siempre vivo por USB 5V/2A** y corte físico de periféricos (`MAX7219` + `HC-SR04` laterales + láseres) vía relé `HW-482` comandado por `GPIO` y `reed` en portón.
 
 ---
 
@@ -9,7 +9,7 @@ Sistema de guiado visual de alta precisión para garajes basado en **ESPHome** s
 El asistente utiliza tres sensores ultrasónicos (HC-SR04), tres módulos de diodo láser para marcar puntos de referencia visuales en el vehículo y una matriz de LED de $8\times32$ píxeles gobernada por cuatro controladores MAX7219 encadenados (DOUT→DIN).
 
 ### Principales Características
-* **Zero Power Draw en Reposo:** La alimentación general de $5\text{V}$ pasa a través de un relé comandado por un sensor magnético de lámina (reed switch) ubicado en el portón del garaje. Al cerrarse el portón o no detectar el vehículo, la alimentación se interrumpe por completo.
+* **Corte físico de periféricos con NodeMCU siempre vivo:** `VIN` `5V USB` alimenta `COM+VCC HW-482`; `GPIO1/TX → S` pega el relé y `GPIO3/RX ← reed NO → GND` (`Par4`, `INPUT_PULLUP 50ms`, `Porton`) lo comanda. Con portón cerrado los periféricos quedan en `0mA` pero el `NodeMCU` sigue en `~70mA` por `USB` para `OTA/logs/web` instantáneos (antes `0W` total con `VIN` en serie con el reed).
 * **Tolerancia a Fallos de Red:** Operación autónoma en modo AP (Punto de Acceso) local. Sin retardos por desconexiones o bloqueos por fallas de Wi-Fi.
 * **Alineación Simétrica de Precisión:** Barra de progreso sólida desde el centro + marquesina 7x5 del usuario del lado libre en desvío + distancias 3x6 contra los márgenes con calado en negativo — para evitar colisiones laterales con espejos retrovisores o columnas.
 * **Respuesta Dinámica según Sentido de Marcha:** Detecta automáticamente si el vehículo está ingresando (aproximación) o saliendo (retroceso), modificando el flujo visual de la pantalla.
@@ -117,14 +117,106 @@ Entidad `button` (`platform: restart`, nombre `Reiniciar`) en la interfaz web pr
                   │ GPIO16 (D0) ──────► Trigger Fondo
                   │ GPIO0  (D3) ──────► Trigger Izquierda
                   │ GPIO15 (D8) ──────► Trigger Derecha
-                  │ GPIO12 (D6) ──────► Echo Fondo
-                  │ GPIO5  (D1) ──────► Echo Izquierda
-                  │ GPIO4  (D2) ──────► Echo Derecha
-                  │ GPIO14 (D5) ──────► SPI CLK (dedicado MAX7219)
-                  │ GPIO13 (D7) ──────► SPI MOSI (DIN MAX7219)
-                  │ GPIO2  (D4) ──────► SPI CS (CS MAX7219)
+                  │ GPIO12 (D6) ──────► Echo Fondo (divisor 1k/1.8k)
+                  │ GPIO5  (D1) ──────► Echo Izquierda (divisor)
+                  │ GPIO4  (D2) ──────► Echo Derecha (divisor)
+                  │ GPIO14 (D5) ──────► SPI CLK (MAX7219)
+                  │ GPIO13 (D7) ──────► SPI MOSI (DIN)
+                  │ GPIO2  (D4) ──────► SPI CS
+                  │ GPIO1  (TX) ──────► S Relé HW-482 (LOW, inverted:true)
+                  │ GPIO3  (RX) ──────► Reed Porton NO → GND (Par4, jumper)
+                  │ VIN    (5V USB) ──► COM+VCC HW-482 + riel NO→periféricos
                   └───────────────────────────────┘
 
+```
+
+### Diagrama de conexionado completo (Mermaid)
+
+```mermaid
+flowchart TB
+    subgraph PWR["Alimentación USB 5V/2A"]
+        USB["Cargador USB-C 5V/2A"]
+        VIN["NodeMCU VIN (≈4.8V)"]
+        GNDPWR["NodeMCU GND"]
+        USB --> VIN
+        USB --> GNDPWR
+    end
+    subgraph MCU["NodeMCU v2 ESP8266"]
+        G16["GPIO16 D0 → Trigger Fondo"]
+        G12["GPIO12 D6 ← Echo Fondo (3.3V)"]
+        G0["GPIO0 D3 → Trigger Izq (Par2)"]
+        G5["GPIO5 D1 ← Echo Izq (3.3V)"]
+        G15["GPIO15 D8 → Trigger Der (Par3)"]
+        G4["GPIO4 D2 ← Echo Der (3.3V)"]
+        G14["GPIO14 D5 → SPI CLK"]
+        G13["GPIO13 D7 → SPI MOSI/DIN"]
+        G2["GPIO2 D4 → SPI CS"]
+        G1["GPIO1 TX → S Relé (inverted:true)"]
+        G3["GPIO3 RX ← Reed (INPUT_PULLUP)"]
+    end
+    subgraph RELAY["Módulo Relé 1ch S/+/− (HW-482 LOW)"]
+        S["S (IN)"]
+        PLUS["+ (VCC)"]
+        MINUS["− (GND)"]
+        COM["COM"]
+        NO["NO → Riel 5V Conmutado"]
+    end
+    subgraph DISPLAY["Matriz MAX7219 4× (8×32)"]
+        CLK["CLK"]
+        DIN["DIN (MOSI)"]
+        CS["CS"]
+        VCCDISP["VCC 5V"]
+        GNDDISP["GND"]
+    end
+    subgraph SFRONTAL["HC-SR04 Fondo (corto)"]
+        TRIG_F["TRIG"]
+        ECHO_F["ECHO 5V"]
+        DIV_F1["[1kΩ]"]
+        DIV_F2["[1.8kΩ]"]
+        ECHO_F --> DIV_F1 --> G12
+        DIV_F1 --> DIV_F2 --> GNDPWR
+    end
+    subgraph UTP["UTP Cat5e Fondo → Portón (6m)"]
+        P1["Par1 Azul: 5V conmutado + GND"]
+        P2["Par2 Naranja: Trig Izq + Echo Izq"]
+        P3["Par3 Verde: Trig Der + Echo Der"]
+        P4["Par4 Marrón: GPIO3 → reed NO → GND"]
+    end
+    subgraph LATERAL["Nodo Portón"]
+        LS_TRIG["HC-SR04 Izq TRIG"]
+        LS_ECHO["HC-SR04 Izq ECHO 5V"]
+        RS_TRIG["HC-SR04 Der TRIG"]
+        RS_ECHO["HC-SR04 Der ECHO 5V"]
+        DIV_L1["[1kΩ]"]
+        DIV_L2["[1.8kΩ]"]
+        DIV_R1["[1kΩ]"]
+        DIV_R2["[1.8kΩ]"]
+        REED["Reed NO + Imán"]
+        LASER["3× Láser 5V"]
+    end
+    VIN --> PLUS
+    VIN --> COM
+    GNDPWR --> MINUS
+    GNDPWR --> GNDDISP
+    NO --> VCCDISP
+    NO --> P1
+    P1 --> LASER
+    G1 --> S
+    G14 --> CLK
+    G13 --> DIN
+    G2 --> CS
+    G16 --> TRIG_F
+    G0 --> P2 --> LS_TRIG
+    LS_ECHO --> DIV_L1 --> G5
+    DIV_L1 --> DIV_L2 --> GNDPWR
+    G15 --> P3 --> RS_TRIG
+    RS_ECHO --> DIV_R1 --> G4
+    DIV_R1 --> DIV_R2 --> GNDPWR
+    G3 --> P4 --> REED --> GNDPWR
+    CAP["Bulk 470µF+100nF en VIN/GND"]
+    CAP2["100nF en NO/GND junto MAX7219"]
+    VIN --- CAP --- GNDPWR
+    NO --- CAP2 --- GNDPWR
 ```
 
 ### ⚡ Arquitectura de Energía (USB permanente + corte periféricos por GPIO)
@@ -192,9 +284,9 @@ Echo HC-SR04 (5V) ───[ 1 kΩ ]───┬───► GPIO ESP8266 (3.21V
 
 ### 🧰 Recomendaciones de Montaje Físico
 
-* **Nodo fondo (pared de fondo):** matriz LED a la altura de los ojos del conductor y centrada con el eje del vehículo + NodeMCU + sensor fondo a la altura del paragolpe, todo en corto directo (SPI y fondo sin UTP). Prever acceso USB al NodeMCU (primer flasheo y recovery).
-* **Nodo portón:** laterales a la altura de los espejos retrovisores apuntando a los flancos + reed en el marco con imán en la hoja móvil (calibrar para contacto cerrado con portón abierto) + nada más (sin MCU ni relé ahí).
-* **Módulo HW-482:** atrás junto al MCU, IN puenteado a GND, jumper JD-VCC de fábrica. Sus LEDs (power + canal) son los testigos: con portón abierto, ambos encendidos.
+* **Nodo fondo (pared de fondo):** matriz LED a la altura de los ojos del conductor y centrada con el eje del vehículo + NodeMCU + sensor fondo a la altura del paragolpe, todo en corto directo (SPI y fondo sin UTP). Prever acceso USB al NodeMCU (flasheo y recovery con `jumper Par4` quitado si portón abierto).
+* **Nodo portón:** laterales a la altura de los espejos retrovisores apuntando a los flancos + reed `NO` en el marco con imán en la hoja móvil (calibrar para `GPIO3 LOW` con portón abierto) + `jumper` en `Par4` + nada más (sin MCU ni relé ahí).
+* **Módulo HW-482 `S/+/-`:** atrás junto al MCU, `+→VIN, -→GND, S→GPIO1/TX inverted:true`, jumper `JD-VCC` de fábrica. `power` siempre con `VIN`, `canal` solo con portón abierto. Si tu módulo marca `S/+/−`, `S=IN`.
 * **Sensores multi-modo:** los módulos marcados HC-SR04 con pads R4/R5 se usan en modo clásico de 2 hilos (**pads abiertos**). No puentear R4 (I2C), R5 (UART) ni R4+R5 ("1-WIRE" single-bus): ningún modo alternativo tiene soporte nativo en ESPHome y el diseño actual los necesita en modo trigger/echo.
 * **Entorno:** evitar sol directo sobre los HC-SR04 y superficies absorbentes (telas, espuma) en la línea de medición; el ultrasonido rebota mejor en superficies duras y perpendiculares.
 
@@ -202,8 +294,9 @@ Echo HC-SR04 (5V) ───[ 1 kΩ ]───┬───► GPIO ESP8266 (3.21V
 
 | Síntoma | Causa probable | Acción |
 | :--- | :--- | :--- |
-| No enciende al abrir el portón | Reed descalibrado o módulo sin 5V | Mirar LEDs del HW-482 (power+canal con portón abierto); verificar continuidad del lazo reed con multímetro |
-| Resets al cerrar el portón o en STOP | Flyback o bulk insuficientes | Verificar el módulo HW-482 (diodo interno de fábrica) y los capacitores de 470 µF + 100 nF en el riel de fondo |
+| No enciende periféricos al abrir el portón | Reed `GPIO3` sin `LOW` o `GPIO1` sin `LOW` | Verificar `binary_sensor Porton` en `http://192.168.1.223/binary_sensor/Porton` (`ON=Abierto`), LEDs `HW-482` `power` siempre + `canal` solo abierto, `S/+/-` y `jumper Par4` |
+| Resets en STOP o al conmutar | Bulk en `VIN/GND` insuficiente | Verificar `470µF+100nF` en `VIN/GND` NodeMCU y `100nF` en `NO/GND` junto a `MAX7219` |
+| `Porton` siempre `OFF` | `GPIO3` clavado a `GND` bloquea `RX` | Quitar `jumper Par4` para flashear por `USB`; medir `GPIO3 3.3V` con reed abierto |
 | Fondo sin respuesta (siempre `READY_`) | Echo fondo sin señal o fuera de alcance (> 2 m) | Revisar cableado/divisor de GPIO12, `esphome logs parking.yaml --device /dev/ttyUSB0` |
 | Texto espejado o rotado | Orden de encadenado DOUT→DIN invertido | Probar `reverse_enable`, `rotate_chip` o `flip_x` |
 | Brillo bajo / flicker | Caída de tensión con 4 chips a 3.3 V o cable UTP muy largo | Level-converter, alimentar matriz con 5 V dedicados |
@@ -234,7 +327,7 @@ El YAML no trae ninguna credencial: ni WiFi ni OTA (`wifi: networks:` vacío + `
 Puedes conectarte desde cualquier teléfono o PC a `http://garage.local` (o a `http://192.168.1.1` en modo AP) para ajustar los umbrales de distancia y visualizar la simulación de la pantalla en tiempo real. Para actualizaciones sin USB usa `esphome run parking.yaml` con el dispositivo en red (módulo `ota:` habilitado).
 
 5. **Verificación de Funcionamiento:**
-Al energizar debe mostrar el prompt `READY_` (con cursor parpadeante; si no hay eco, igual: sin estado de fallo dedicado). En la web (`Sensor Fondo/Izquierda/Derecha`, en cm, 0 decimales, ~5 Hz por round-robin) verifica las lecturas en vivo: `Unknown` = sin eco (normal sin obstáculo), y la mediana tarda ~1 s en asentarse al mover la mano (normal, no es lag de red). Prueba de rango mínimo: mano a 5, 10, 15 y 30 cm del fondo — si a ≤10 cm lee estable, los módulos responden como clásico y el tema R4/R5 queda archivado. Prueba de potencia: con portón cerrado, multímetro en el riel = 0 V; abierto, secuencia mano→barra L→R→`STOP`. Con `esphome logs parking.yaml --device /dev/ttyUSB0` (ajusta el puerto) puedes ver el estado interno en tiempo real.
+Al energizar `VIN` el `NodeMCU` queda vivo y `on_boot` lee `reed` `GPIO3` y pega `Rele Fondo` `GPIO1` si `Porton ON`. En el plano `web` `Porton Cerrado` = línea gruesa sólida `WALL currentColor` entre postes `Y(0)`, `Abierto` = hueco, `null` inicial = punteada `6 4` `opacity 0.6`. En la web (`Sensor Fondo/Izquierda/Derecha`, en cm, 0 decimales, ~5 Hz por round-robin + `binary_sensor Porton`) verifica lecturas: `Unknown` = sin eco (normal), `Porton ON/OFF` en `http://garage.local/binary_sensor/Porton`. Prueba de potencia: con portón cerrado `rriel NO =0V` pero `VIN=4.8V` sigue; abierto, secuencia mano→barra→`STOP`. Con `logger:baud_rate 0` no hay `esphome logs` por `USB`; usa `Registro` web o `http://garage.local/events`. Para flasheo `USB` con portón abierto quita `jumper Par4` 2s.
 
 ---
 
@@ -246,7 +339,7 @@ Interfaz de monitoreo amigable (mobile-first, tema claro/oscuro, español) que h
 * Acceso por `http://garage.local` (editable, con escaneo de subred y `?garage=` para compartir). Si la página va por HTTPS, permitir contenido inseguro para el sitio (patrón probado del reloj).
 * Topbar mínima (título = `Nombre Cochera` + LEDs **TX**/**RX** + menú ⋮; sin subtítulo): la pill de conexión solo se muestra sin conexión, conectado vive dentro del menú. Menú con Conexión (con estado), Registro (diálogo modal con Limpiar), Sistema, Estado avanzado, Compartir, Tema y Configuración. Nombre también en Configuración → Cochera y en la pestaña.
 * Cuerpo directo sin tarjetas ni títulos: panel de estado en formato normal arriba (mismos estados del display: LISTO, aproximación con barra, alineación con flechas de corrección, banner rojo de STOP) y esquema cenital abajo con badge de modo centrado debajo.
-* Esquema cenital a escala: fondo arriba y portón abajo, interior 20% más ancho que el portón (vano) con muros gruesos en un solo trazo (uniones suaves, al ras de los postes), umbrales como anillos por tramo entre umbrales (sin líneas, cada uno con su color sombreado y su distancia en vertical al borde interno intercalado izq/der, centrada en su tramo y sin "cm"), lecturas 50% más grandes y FUERA de las paredes (laterales a los costados, fondo arriba y con su línea al centro) en verde→amarillo→rojo según desvío y umbrales (fondo por tier; laterales: lado cercano ≤ poste en rojo, desvío > chevron en amarillo de ese lado), cotas SÓLIDAS solo para lo medido por sensores (con terminaciones perpendiculares) y línea DE PUNTOS solo entre cada cota y su número para vincularlas; dimensiones fijas sin líneas y semitransparentes, auto que se funde a transparente donde asome del portón (máscara con degradado), zona objetivo gris (morro a Umbral STOP, tamaño = Largo/Ancho Auto, sombreada con borde punteado semitransparente) y auto con los paths vectoriales reales de `temp/car.svg` a escala (sin PNGs externos ni gradientes, ver `web/car.svg`; carrocería = `Ancho Auto`, total = `Ancho Auto con espejos` del firmware, solo vista: los sensores miran por debajo de los espejos; el tope lateral también usa el total con espejos) posicionado por fondo + laterales (oculto sin detección), cotas numéricas junto a cada elemento (sin palabras, rotadas donde va) y las 3 distancias en grande sobre el gráfico (se eliminaron las tarjetas individuales). Si el fondo aún no tiene eco pero los laterales sí, se muestra la punta del auto entre los postes con el 20% del largo adentro, hasta que el fondo empiece a dar distancia; sin ningún eco solo queda la zona objetivo.
+* Esquema cenital a escala: fondo arriba y portón abajo, interior 20% más ancho que el portón (vano) con muros gruesos en un solo trazo (uniones suaves, al ras de los postes **con portón dibujado:** `Cerrado` = línea gruesa sólida `WALL currentColor` entre `X(-gateW/2)→X(gateW/2)` a `Y(0)`; `Abierto` = hueco; `null` inicial = punteada `6 4` `opacity 0.6` `web/app.js:410`), umbrales como anillos por tramo entre umbrales (sin líneas, cada uno con su color sombreado y su distancia en vertical al borde interno intercalado izq/der, centrada en su tramo y sin "cm"), lecturas 50% más grandes y FUERA de las paredes (laterales a los costados, fondo arriba y con su línea al centro) en verde→amarillo→rojo según desvío y umbrales (fondo por tier; laterales: lado cercano ≤ poste en rojo, desvío > chevron en amarillo de ese lado), cotas SÓLIDAS solo para lo medido por sensores (con terminaciones perpendiculares) y línea DE PUNTOS solo entre cada cota y su número para vincularlas; dimensiones fijas sin líneas y semitransparentes, auto que se funde a transparente donde asome del portón (máscara con degradado), zona objetivo gris (morro a Umbral STOP, tamaño = Largo/Ancho Auto, sombreada con borde punteado semitransparente) y auto con los paths vectoriales reales de `temp/car.svg` a escala (sin PNGs externos ni gradientes, ver `web/car.svg`; carrocería = `Ancho Auto`, total = `Ancho Auto con espejos` del firmware, solo vista: los sensores miran por debajo de los espejos; el tope lateral también usa el total con espejos) posicionado por fondo + laterales (oculto sin detección), cotas numéricas junto a cada elemento (sin palabras, rotadas donde va) y las 3 distancias en grande sobre el gráfico (se eliminaron las tarjetas individuales). Si el fondo aún no tiene eco pero los laterales sí, se muestra la punta del auto entre los postes con el 20% del largo adentro, hasta que el fondo empiece a dar distancia; sin ningún eco solo queda la zona objetivo.
 * Diálogo **Configuración** (sliders + número por campo, con **bloqueo** ante umbrales incoherentes o espejos ≤ carrocería): umbrales, Alineación, `Alerta Poste Lateral`, Dimensiones (incl. con espejos), Pantalla y Cochera (nombre).
 * Modal **Sistema**: IP, WiFi (SSID/señal/BSSID/MAC), versión ESPHome, fecha de firmware, uptime, motivo de reinicio, CPU, heap/bloque/fragmentación/loop, mensajes y latencia (telemetría `debug` + `uptime` + `wifi_signal` + `wifi_info` + `version` del firmware).
 * Diálogo **Estado avanzado** (estilo del proyecto del reloj): `select` **Modo Prueba** (las 13 opciones del firmware vía `POST /select/Modo Prueba/set?option=`, con badge `PRUEBA · …` en la tarjeta Posición; con `Manual` aparecen sliders de distancias manuales) + botón **Reiniciar equipo** (con confirmación, `POST /button/Reiniciar/press`, como el `modalRebootBtn` del reloj).
@@ -318,3 +411,10 @@ Interfaz de monitoreo amigable (mobile-first, tema claro/oscuro, español) que h
 - **Modo Prueba** (`parking.yaml:858-940`): congela round-robin, tabla de `syn` por opción (NaN sin eco), `Manual` evalúa máquina real con `prueba_*`, publicación vía `internal_send_state_to_frontend` (bypass `multiply` + mediana), republicación solo al cambiar opción o distancia manual, y al salir resiembra `distancia_fondo_previa` + `estatico_desde_ms`.
 
 > Todos los cambios mantienen compatibilidad con el hardware existente (NodeMCU v2 + 4×MAX7219 + 3×HC-SR04) y con el dashboard `web/`; solo requieren reflasheo y, si se viene de la versión inicial, purgar el `.bdf` y recalibrar umbrales (ahora persisten).
+
+### 11. Opción B USB permanente + `Porton` en plano (`2026-09-19`)
+- `logger: baud_rate: 0` `parking.yaml:9` libera `GPIO1/TX` y `GPIO3/RX` (sacrifica `esphome logs` por `USB`, mantiene `OTA` `web_server`).
+- `binary_sensor Porton` `GPIO3 INPUT_PULLUP inverted:true` `50ms debounce` `parking.yaml:253` + `output relay_out GPIO1 inverted:true` + `switch Rele Fondo` `output_switch` `parking.yaml:296` + `esphome on_boot priority 600` lee `reed` y sync `rele_fondo` (`que lea`).
+- `Par4` deja `5V/80mA` y pasa a `GPIO3→reed NO→GND` con `jumper` desconectable para `USB` flasheo; `Par1` sigue `5V conmutado+GND`; `VIN` como `5V USB` para `COM+VCC` `readme.md:136` y `VV` como reserva sin `Y`.
+- `web/app.js` `S.porton` `BINARY_PORTON` `LOOKUP binary_sensor` `route binary_sensor` `routeLegacy binary` + `renderSvg` línea portón `web/app.js:410` `WALL currentColor` `OFF=sólida, ON=hueco, null=punteada`.
+- `readme.md` añade diagrama `Mermaid` completo con divisores `1k/1.8k` y arquitectura `VIN` permanente.
