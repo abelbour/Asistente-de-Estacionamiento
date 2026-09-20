@@ -134,33 +134,103 @@ Entidad `button` (`platform: restart`, nombre `Reiniciar`) en la interfaz web pr
 
 ```mermaid
 flowchart TB
-    USB[Cargador USB 5V 2A] --> VIN[NodeMCU VIN]
-    USB --> GND[NodeMCU GND]
-    VIN --> RELE_PLUS[Rele PLUS]
-    VIN --> RELE_COM[Rele COM]
-    GND --> RELE_GND[Rele GND]
-    GPIO1[GPIO1 TX] --> RELE_S[Rele S]
-    GPIO3[GPIO3 RX] --> P4[Par4 Marron]
-    P4 --> REED[Reed NO] --> GND
-    RELE_COM --> RELE_NO[Riel 5V]
-    RELE_NO --> MAXVCC[MAX7219 VCC]
-    RELE_NO --> P1[Par1 Azul 5V]
-    P1 --> LASER[Laser 5V]
-    P1 --> LATERAL_PWR[Laterales VCC]
-    GPIO14[GPIO14] --> CLK[MAX7219 CLK]
-    GPIO13[GPIO13] --> DIN[MAX7219 DIN]
-    GPIO2[GPIO2] --> CS[MAX7219 CS]
-    GPIO16[GPIO16] --> TRIGF[Fondo TRIG]
-    ECHOF[Fondo ECHO 5V] --> DIV1[Divisor 1k] --> GPIO12[GPIO12]
-    DIV1 --> DIV2[Divisor 1.8k] --> GND
-    GPIO0[GPIO0] --> P2[Par2 Naranja] --> TRIGL[Izq TRIG]
-    ECHOL[Izq ECHO 5V] --> DIV3[Divisor 1k] --> GPIO5[GPIO5]
-    DIV3 --> DIV4[Divisor 1.8k] --> GND
-    GPIO15[GPIO15] --> P3[Par3 Verde] --> TRIGR[Der TRIG]
-    ECHOR[Der ECHO 5V] --> DIV5[Divisor 1k] --> GPIO4[GPIO4]
-    DIV5 --> DIV6[Divisor 1.8k] --> GND
+    subgraph PWR [Alimentacion USB]
+        USB[Cargador USB 5V 2A]
+        VIN[VIN 4.8V]
+        GND[GND]
+    end
+    USB --> VIN
+    USB --> GND
+
+    subgraph MCU [NodeMCU v2]
+        direction TB
+        MCU1[GPIO16 D0 Trigger Fondo]
+        MCU2[GPIO12 D6 Echo Fondo 3.3V]
+        MCU3[GPIO0 D3 Trigger Izq]
+        MCU4[GPIO5 D1 Echo Izq 3.3V]
+        MCU5[GPIO15 D8 Trigger Der]
+        MCU6[GPIO4 D2 Echo Der 3.3V]
+        MCU7[GPIO14 D5 CLK]
+        MCU8[GPIO13 D7 MOSI]
+        MCU9[GPIO2 D4 CS]
+        MCU10[GPIO1 TX S Rele]
+        MCU11[GPIO3 RX Reed]
+        MCU12[VIN 5V]
+        MCU13[GND]
+    end
+
+    subgraph RELE [Rele HW-482]
+        direction TB
+        R1[S IN]
+        R2[PLUS VCC]
+        R3[MINUS GND]
+        R4[COM]
+        R5[NO Riel 5V]
+    end
+
+    subgraph DISP [MAX7219 4x]
+        direction TB
+        D1[CLK]
+        D2[DIN]
+        D3[CS]
+        D4[VCC 5V]
+        D5[GND]
+    end
+
+    subgraph FONDO [HC-SR04 Fondo]
+        direction TB
+        F1[TRIG]
+        F2[ECHO 5V]
+        FD1[1k]
+        FD2[1.8k]
+    end
+
+    subgraph UTP [UTP Cat5e 6m]
+        direction TB
+        U1[Par1 Azul 5V GND]
+        U2[Par2 Naranja Trig Echo Izq]
+        U3[Par3 Verde Trig Echo Der]
+        U4[Par4 Marron Reed GND]
+    end
+
+    subgraph PORTON [Porton]
+        direction TB
+        P1[HC-SR04 Izq TRIG]
+        P2[HC-SR04 Izq ECHO 5V]
+        P3[HC-SR04 Der TRIG]
+        P4[HC-SR04 Der ECHO 5V]
+        P5[Reed NO]
+        P6[3x Laser 5V]
+        PD1[1k Izq]
+        PD2[1.8k Izq]
+        PD3[1k Der]
+        PD4[1.8k Der]
+    end
+
+    VIN --> R2
+    VIN --> R4
+    GND --> R3
+    MCU10 --> R1
+    MCU11 --> U4 --> P5 --> GND
+    R4 --> R5
+    R5 --> D4
+    R5 --> U1
+    U1 --> P6
+    MCU7 --> D1
+    MCU8 --> D2
+    MCU9 --> D3
+    MCU1 --> F1
+    F2 --> FD1 --> MCU2
+    FD1 --> FD2 --> GND
+    MCU3 --> U2 --> P1
+    P2 --> PD1 --> MCU4
+    PD1 --> PD2 --> GND
+    MCU5 --> U3 --> P3
+    P4 --> PD3 --> MCU6
+    PD3 --> PD4 --> GND
+    D5 --> GND
     VIN --> BULK[Bulk 470uF 100nF] --> GND
-    RELE_NO --> CAP2[Cap 100nF] --> GND
+    R5 --> CAP2[Cap 100nF] --> GND
 ```
 
 #### Tabla de conexiones por dispositivo
