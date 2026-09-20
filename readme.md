@@ -134,65 +134,65 @@ Entidad `button` (`platform: restart`, nombre `Reiniciar`) en la interfaz web pr
 
 ```mermaid
 flowchart TB
-    subgraph PWR["Alimentación USB 5V/2A"]
+    subgraph PWR["Alimentacion USB 5V/2A"]
         USB["Cargador USB-C 5V/2A"]
-        VIN["NodeMCU VIN (≈4.8V)"]
+        VIN["NodeMCU VIN 4.8V"]
         GNDPWR["NodeMCU GND"]
         USB --> VIN
         USB --> GNDPWR
     end
     subgraph MCU["NodeMCU v2 ESP8266"]
-        G16["GPIO16 D0 → Trigger Fondo"]
-        G12["GPIO12 D6 ← Echo Fondo (3.3V)"]
-        G0["GPIO0 D3 → Trigger Izq (Par2)"]
-        G5["GPIO5 D1 ← Echo Izq (3.3V)"]
-        G15["GPIO15 D8 → Trigger Der (Par3)"]
-        G4["GPIO4 D2 ← Echo Der (3.3V)"]
-        G14["GPIO14 D5 → SPI CLK"]
-        G13["GPIO13 D7 → SPI MOSI/DIN"]
-        G2["GPIO2 D4 → SPI CS"]
-        G1["GPIO1 TX → S Relé (inverted:true)"]
-        G3["GPIO3 RX ← Reed (INPUT_PULLUP)"]
+        G16["GPIO16 D0 Trigger Fondo"]
+        G12["GPIO12 D6 Echo Fondo 3.3V"]
+        G0["GPIO0 D3 Trigger Izq Par2"]
+        G5["GPIO5 D1 Echo Izq 3.3V"]
+        G15["GPIO15 D8 Trigger Der Par3"]
+        G4["GPIO4 D2 Echo Der 3.3V"]
+        G14["GPIO14 D5 SPI CLK"]
+        G13["GPIO13 D7 SPI MOSI DIN"]
+        G2["GPIO2 D4 SPI CS"]
+        G1["GPIO1 TX S Rele inverted"]
+        G3["GPIO3 RX Reed INPUT_PULLUP"]
     end
-    subgraph RELAY["Módulo Relé 1ch S/+/− (HW-482 LOW)"]
-        S["S (IN)"]
-        PLUS["+ (VCC)"]
-        MINUS["− (GND)"]
+    subgraph RELAY["Modulo Rele 1ch S Plus Minus HW-482 LOW"]
+        S["S IN"]
+        PLUS["Plus VCC"]
+        MINUS["Minus GND"]
         COM["COM"]
-        NO["NO → Riel 5V Conmutado"]
+        NO["NO Riel 5V Conmutado"]
     end
-    subgraph DISPLAY["Matriz MAX7219 4× (8×32)"]
+    subgraph DISPLAY["Matriz MAX7219 4x 8x32"]
         CLK["CLK"]
-        DIN["DIN (MOSI)"]
-        CS["CS"]
+        DIN["DIN MOSI"]
+        CS2["CS"]
         VCCDISP["VCC 5V"]
         GNDDISP["GND"]
     end
-    subgraph SFRONTAL["HC-SR04 Fondo (corto)"]
+    subgraph SFRONTAL["HC-SR04 Fondo corto"]
         TRIG_F["TRIG"]
         ECHO_F["ECHO 5V"]
-        DIV_F1["[1kΩ]"]
-        DIV_F2["[1.8kΩ]"]
+        DIV_F1["1k"]
+        DIV_F2["1.8k"]
         ECHO_F --> DIV_F1 --> G12
         DIV_F1 --> DIV_F2 --> GNDPWR
     end
-    subgraph UTP["UTP Cat5e Fondo → Portón (6m)"]
-        P1["Par1 Azul: 5V conmutado + GND"]
-        P2["Par2 Naranja: Trig Izq + Echo Izq"]
-        P3["Par3 Verde: Trig Der + Echo Der"]
-        P4["Par4 Marrón: GPIO3 → reed NO → GND"]
+    subgraph UTP["UTP Cat5e Fondo a Porton 6m"]
+        P1["Par1 Azul 5V conmutado GND"]
+        P2["Par2 Naranja Trig Izq Echo Izq"]
+        P3["Par3 Verde Trig Der Echo Der"]
+        P4["Par4 Marron GPIO3 reed NO GND"]
     end
-    subgraph LATERAL["Nodo Portón"]
+    subgraph LATERAL["Nodo Porton"]
         LS_TRIG["HC-SR04 Izq TRIG"]
         LS_ECHO["HC-SR04 Izq ECHO 5V"]
         RS_TRIG["HC-SR04 Der TRIG"]
         RS_ECHO["HC-SR04 Der ECHO 5V"]
-        DIV_L1["[1kΩ]"]
-        DIV_L2["[1.8kΩ]"]
-        DIV_R1["[1kΩ]"]
-        DIV_R2["[1.8kΩ]"]
-        REED["Reed NO + Imán"]
-        LASER["3× Láser 5V"]
+        DIV_L1["1k"]
+        DIV_L2["1.8k"]
+        DIV_R1["1k"]
+        DIV_R2["1.8k"]
+        REED["Reed NO Iman"]
+        LASER["3x Laser 5V"]
     end
     VIN --> PLUS
     VIN --> COM
@@ -204,7 +204,7 @@ flowchart TB
     G1 --> S
     G14 --> CLK
     G13 --> DIN
-    G2 --> CS
+    G2 --> CS2
     G16 --> TRIG_F
     G0 --> P2 --> LS_TRIG
     LS_ECHO --> DIV_L1 --> G5
@@ -213,8 +213,8 @@ flowchart TB
     RS_ECHO --> DIV_R1 --> G4
     DIV_R1 --> DIV_R2 --> GNDPWR
     G3 --> P4 --> REED --> GNDPWR
-    CAP["Bulk 470µF+100nF en VIN/GND"]
-    CAP2["100nF en NO/GND junto MAX7219"]
+    CAP["Bulk 470uF 100nF VIN GND"]
+    CAP2["100nF NO GND junto MAX7219"]
     VIN --- CAP --- GNDPWR
     NO --- CAP2 --- GNDPWR
 ```
