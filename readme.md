@@ -134,99 +134,53 @@ Entidad `button` (`platform: restart`, nombre `Reiniciar`) en la interfaz web pr
 
 ```mermaid
 flowchart TB
-    subgraph PWR [Alimentacion USB 5V 2A]
-        direction TB
-        USB[Cargador USB-C]
-        VIN[VIN 4.8V]
-        GND[GND]
+    subgraph PWR ["Alimentacion USB 5V 2A"]
+        direction LR
+        PWR_OUT["Salidas<br>VIN 4.8V<br>GND"]
+        PWR_IN["Entradas<br>USB-C 5V 2A"]
     end
-    subgraph MCU [NodeMCU v2]
-        direction TB
-        MCU_VIN[VIN]
-        MCU_GND[GND]
-        MCU_G16[GPIO16 D0]
-        MCU_G12[GPIO12 D6]
-        MCU_G0[GPIO0 D3]
-        MCU_G5[GPIO5 D1]
-        MCU_G15[GPIO15 D8]
-        MCU_G4[GPIO4 D2]
-        MCU_G14[GPIO14 D5]
-        MCU_G13[GPIO13 D7]
-        MCU_G2[GPIO2 D4]
-        MCU_G1[GPIO1 TX]
-        MCU_G3[GPIO3 RX]
+    subgraph MCU ["NodeMCU v2"]
+        direction LR
+        MCU_OUT["Salidas<br>GPIO16 D0 Trig Fondo<br>GPIO0 D3 Trig Izq<br>GPIO15 D8 Trig Der<br>GPIO14 D5 CLK<br>GPIO13 D7 MOSI<br>GPIO2 D4 CS<br>GPIO1 TX S Rele<br>VIN 5V"]
+        MCU_IN["Entradas<br>GPIO12 D6 Echo Fondo<br>GPIO5 D1 Echo Izq<br>GPIO4 D2 Echo Der<br>GPIO3 RX Reed<br>GND"]
     end
-    subgraph RELE [Rele HW-482]
-        direction TB
-        R_S[S IN]
-        R_PLUS[PLUS VCC]
-        R_MINUS[MINUS GND]
-        R_COM[COM]
-        R_NO[NO Riel 5V]
+    subgraph RELE ["Rele HW-482"]
+        direction LR
+        RELE_OUT["Salidas<br>NO Riel 5V"]
+        RELE_IN["Entradas<br>S IN<br>PLUS VCC<br>MINUS GND<br>COM"]
     end
-    subgraph DISP [MAX7219 4x 8x32]
-        direction TB
-        D_CLK[CLK]
-        D_DIN[DIN]
-        D_CS[CS]
-        D_VCC[VCC 5V]
-        D_GND[GND]
+    subgraph DISP ["MAX7219 4x 8x32"]
+        direction LR
+        DISP_OUT["Salidas<br>---"]
+        DISP_IN["Entradas<br>CLK<br>DIN<br>CS<br>VCC 5V<br>GND"]
     end
-    subgraph FONDO [HC-SR04 Fondo]
-        direction TB
-        F_TRIG[TRIG]
-        F_ECHO[ECHO 5V]
-        F_D1[1k]
-        F_D2[1.8k]
+    subgraph FONDO ["HC-SR04 Fondo"]
+        direction LR
+        FONDO_OUT["Salidas<br>ECHO 5V"]
+        FONDO_IN["Entradas<br>TRIG<br>Divisor 1k 1.8k"]
     end
-    subgraph UTP [UTP Cat5e 6m]
+    subgraph UTP ["UTP Cat5e 6m"]
         direction TB
-        U1A[Par1 Azul 5V]
-        U1B[Par1 Blanco-Azul GND]
-        U2A[Par2 Naranja Trig Izq]
-        U2B[Par2 Blanco-Naranja Echo Izq]
-        U3A[Par3 Verde Trig Der]
-        U3B[Par3 Blanco-Verde Echo Der]
-        U4A[Par4 Marron Reed]
-        U4B[Par4 Blanco-Marron GND]
+        UTP1["Par1 Azul 5V<br>Blanco-Azul GND"]
+        UTP2["Par2 Naranja Trig Izq<br>Blanco-Naranja Echo Izq"]
+        UTP3["Par3 Verde Trig Der<br>Blanco-Verde Echo Der"]
+        UTP4["Par4 Marron Reed<br>Blanco-Marron GND"]
     end
-    subgraph PORTON [Porton]
-        direction TB
-        P_IZQ_T[Izq TRIG]
-        P_IZQ_E[Izq ECHO 5V]
-        P_DER_T[Der TRIG]
-        P_DER_E[Der ECHO 5V]
-        P_REED[Reed NO]
-        P_LASER[3x Laser 5V]
+    subgraph PORTON ["Porton"]
+        direction LR
+        PORTON_OUT["Salidas<br>Izq ECHO 5V<br>Der ECHO 5V<br>Reed NO"]
+        PORTON_IN["Entradas<br>Izq TRIG<br>Der TRIG<br>3x Laser 5V"]
     end
 
-    USB --> VIN
-    USB --> GND
-    VIN --> R_PLUS
-    VIN --> R_COM
-    GND --> R_MINUS
-    MCU_G1 --> R_S
-    MCU_G3 --> U4A --> P_REED --> U4B --> GND
-    R_COM --> R_NO
-    R_NO --> D_VCC
-    R_NO --> U1A
-    GND --> D_GND
-    GND --> U1B
-    U1A --> P_LASER
-    MCU_G14 --> D_CLK
-    MCU_G13 --> D_DIN
-    MCU_G2 --> D_CS
-    MCU_G16 --> F_TRIG
-    F_ECHO --> F_D1 --> MCU_G12
-    F_D1 --> F_D2 --> GND
-    MCU_G0 --> U2A --> P_IZQ_T
-    P_IZQ_E --> U2B --> F_D1_2[1k] --> MCU_G5
-    F_D1_2 --> F_D2_2[1.8k] --> GND
-    MCU_G15 --> U3A --> P_DER_T
-    P_DER_E --> U3B --> F_D1_3[1k] --> MCU_G4
-    F_D1_3 --> F_D2_3[1.8k] --> GND
-    VIN --> BULK[Bulk 470uF 100nF] --> GND
-    R_NO --> CAP2[Cap 100nF] --> GND
+    PWR --> MCU
+    PWR --> RELE
+    MCU --> RELE
+    RELE --> DISP
+    RELE --> FONDO
+    RELE --> UTP
+    UTP --> PORTON
+    MCU --> FONDO
+    MCU --> UTP
 ```
 
 #### Tablas de conexiones por dispositivo
