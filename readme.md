@@ -134,134 +134,83 @@ Entidad `button` (`platform: restart`, nombre `Reiniciar`) en la interfaz web pr
 
 ```mermaid
 flowchart TB
-    subgraph PWR [Alimentacion USB]
-        USB[Cargador USB 5V 2A]
-        VIN[VIN 4.8V]
-        GND[GND]
-    end
-    USB --> VIN
-    USB --> GND
+    PWR["Alimentacion USB<br>Cargador 5V 2A<br>VIN 4.8V<br>GND"]
+    MCU["NodeMCU v2<br>GPIO16 D0 Trigger Fondo<br>GPIO12 D6 Echo 3.3V<br>GPIO0 D3 Trigger Izq<br>GPIO5 D1 Echo Izq<br>GPIO15 D8 Trigger Der<br>GPIO4 D2 Echo Der<br>GPIO14 D5 CLK<br>GPIO13 D7 MOSI<br>GPIO2 D4 CS<br>GPIO1 TX S Rele<br>GPIO3 RX Reed<br>VIN 5V<br>GND"]
+    RELE["Rele HW-482 S Plus Minus<br>S IN<br>PLUS VCC<br>MINUS GND<br>COM<br>NO Riel 5V"]
+    DISP["MAX7219 4x 8x32<br>CLK<br>DIN MOSI<br>CS<br>VCC 5V<br>GND"]
+    FONDO["HC-SR04 Fondo<br>TRIG<br>ECHO 5V<br>Divisor 1k<br>Divisor 1.8k"]
+    UTP["UTP Cat5e 6m<br>Par1 Azul 5V GND<br>Par2 Naranja Trig Echo Izq<br>Par3 Verde Trig Echo Der<br>Par4 Marron Reed GND"]
+    PORTON["Porton<br>HC-SR04 Izq TRIG ECHO<br>HC-SR04 Der TRIG ECHO<br>Reed NO Iman<br>3x Laser 5V<br>Divisores en fondo"]
 
-    subgraph MCU [NodeMCU v2]
-        direction TB
-        MCU1[GPIO16 D0 Trigger Fondo]
-        MCU2[GPIO12 D6 Echo Fondo 3.3V]
-        MCU3[GPIO0 D3 Trigger Izq]
-        MCU4[GPIO5 D1 Echo Izq 3.3V]
-        MCU5[GPIO15 D8 Trigger Der]
-        MCU6[GPIO4 D2 Echo Der 3.3V]
-        MCU7[GPIO14 D5 CLK]
-        MCU8[GPIO13 D7 MOSI]
-        MCU9[GPIO2 D4 CS]
-        MCU10[GPIO1 TX S Rele]
-        MCU11[GPIO3 RX Reed]
-        MCU12[VIN 5V]
-        MCU13[GND]
-    end
-
-    subgraph RELE [Rele HW-482]
-        direction TB
-        R1[S IN]
-        R2[PLUS VCC]
-        R3[MINUS GND]
-        R4[COM]
-        R5[NO Riel 5V]
-    end
-
-    subgraph DISP [MAX7219 4x]
-        direction TB
-        D1[CLK]
-        D2[DIN]
-        D3[CS]
-        D4[VCC 5V]
-        D5[GND]
-    end
-
-    subgraph FONDO [HC-SR04 Fondo]
-        direction TB
-        F1[TRIG]
-        F2[ECHO 5V]
-        FD1[1k]
-        FD2[1.8k]
-    end
-
-    subgraph UTP [UTP Cat5e 6m]
-        direction TB
-        U1[Par1 Azul 5V GND]
-        U2[Par2 Naranja Trig Echo Izq]
-        U3[Par3 Verde Trig Echo Der]
-        U4[Par4 Marron Reed GND]
-    end
-
-    subgraph PORTON [Porton]
-        direction TB
-        P1[HC-SR04 Izq TRIG]
-        P2[HC-SR04 Izq ECHO 5V]
-        P3[HC-SR04 Der TRIG]
-        P4[HC-SR04 Der ECHO 5V]
-        P5[Reed NO]
-        P6[3x Laser 5V]
-        PD1[1k Izq]
-        PD2[1.8k Izq]
-        PD3[1k Der]
-        PD4[1.8k Der]
-    end
-
-    VIN --> R2
-    VIN --> R4
-    GND --> R3
-    MCU10 --> R1
-    MCU11 --> U4 --> P5 --> GND
-    R4 --> R5
-    R5 --> D4
-    R5 --> U1
-    U1 --> P6
-    MCU7 --> D1
-    MCU8 --> D2
-    MCU9 --> D3
-    MCU1 --> F1
-    F2 --> FD1 --> MCU2
-    FD1 --> FD2 --> GND
-    MCU3 --> U2 --> P1
-    P2 --> PD1 --> MCU4
-    PD1 --> PD2 --> GND
-    MCU5 --> U3 --> P3
-    P4 --> PD3 --> MCU6
-    PD3 --> PD4 --> GND
-    D5 --> GND
-    VIN --> BULK[Bulk 470uF 100nF] --> GND
-    R5 --> CAP2[Cap 100nF] --> GND
+    PWR --> MCU
+    PWR --> RELE
+    MCU --> RELE
+    RELE --> DISP
+    RELE --> FONDO
+    RELE --> UTP
+    UTP --> PORTON
+    MCU --> FONDO
+    MCU --> UTP
 ```
 
-#### Tabla de conexiones por dispositivo
+#### Tablas de conexiones por dispositivo
 
-| Dispositivo | Pin / Borne | NodeMCU / UTP | Destino | Notas |
+##### 1. NodeMCU v2 — origen de todas las señales
+
+| Pin NodeMCU | Conexión (cable) | Dispositivo destino | Pin destino | Notas |
 |---|---|---|---|---|
-| **Alimentación** | `VIN` | — | `Rele PLUS` + `COM` + `Bulk 470uF/100nF` | `5V USB` `~4.8V` tras diodo `SS14`, `1A` máx. `VV` libre como reserva `5V` |
-|  | `GND` | — | `Rele MINUS` + `GND MAX7219` + `GND divisores` + `Par1 GND` | Masa común obligatoria |
-| **Relé HW-482** `S/+/−` | `S` | `GPIO1 TX` | `inverted:true` `HIGH=off` seguro en boot `50ms` | `LOW` pega `NO` |
-|  | `+` | `VIN` | `VCC` módulo | `jumper JD-VCC` puesto |
-|  | `−` | `GND` | — | — |
-|  | `COM` | `VIN` | `5V` siempre | — |
-|  | `NO` | — | `Riel 5V conmutado` → `VCC MAX7219` + `HC-SR04 Fondo VCC` + `Par1 Azul 5V` + `100nF` | `NC` sin uso |
-|  | `PNO` | `Par1 Azul` | `3× Láser 5V` + `VCC HC-SR04 laterales` | `Par1` lleva `5V+GND` `8/8` hilos |
-| **Display MAX7219 4×** | `CLK` | `GPIO14 D5` | `SPI CLK` dedicado | ` Parking.yaml:427` |
-|  | `DIN` | `GPIO13 D7` | `SPI MOSI` | — |
-|  | `CS` | `GPIO2 D4` | `SPI CS` `HIGH` en boot `strapping` | — |
-|  | `VCC/GND` | `NO/GND` | `Riel conmutado` | `Level-converter` si flicker/brillo bajo |
-| **HC-SR04 Fondo** | `TRIG` | `GPIO16 D0` | Salida `GPIO16` no sirve como `Echo` `RTC sin IRQ` | Cable corto fondo |
-|  | `ECHO 5V` | `GPIO12 D6` vía divisor | `ECHO ─[1k]─┬─► GPIO12 3.21V` <br> `├─[1.8k]─► GND` `~1.8mA` | Divisor junto a `MCU` `Parking.yaml:290` |
-| **HC-SR04 Izq** | `TRIG` | `GPIO0 D3` → `Par2 Naranja` | `GPIO0 HIGH` en boot `strapping` `10k pullup` | Pulsos por `UTP 6m` ok |
-|  | `ECHO 5V` | `GPIO5 D1` vía divisor | `Par2 Naranja` → `1k/1.8k` → `GPIO5` | Divisor en fondo |
-| **HC-SR04 Der** | `TRIG` | `GPIO15 D8` → `Par3 Verde` | `GPIO15 LOW` en boot `strapping` | — |
-|  | `ECHO 5V` | `GPIO4 D2` vía divisor | `Par3 Verde` → `1k/1.8k` → `GPIO4` | Divisor en fondo |
-| **Reed Portón** | `NO` `×2` | `GPIO3 RX` → `Par4 Marrón` → `GND` | `INPUT_PULLUP inverted:true` `50ms` `S.porton` `Porton ON=Abierto` `Parking.yaml:253` | `Jumper` `Par4` quitado `2s` para flasheo `USB` `GPIO3` bloquea `RX` |
-| **UTP Cat5e** | `Par1 Azul` | `NO + GND` | Potencia laterales + láser | `8/8` hilos usados |
-|  | `Par2 Naranja` | `GPIO0 D3 + GPIO5 D1` | `Trig/Echo Izq` | — |
-|  | `Par3 Verde` | `GPIO15 D8 + GPIO4 D2` | `Trig/Echo Der` | — |
-|  | `Par4 Marrón` | `GPIO3 RX + GND` | `Reed` | `~70µA` señal `3.3V`, no `80mA` potencia |
-| **Bulk** | `470uF+100nF` | `VIN–GND` | Patas cortas en `VIN` | Para picos `WiFi 400mA` |
-|  | `100nF` | `NO–GND` | Junto a `MAX7219` | Solo si flicker `STOP` invertido |
+| `VIN` `5V USB ~4.8V` | Rojo `5V` | `Relé HW-482` | `PLUS` + `COM` | `1A` máx. `SS14`, `VV` libre como reserva `5V` |
+| `GND` | Negro `GND` | `Relé` + `MAX7219` + `Divisores` + `Par1` | `MINUS` / `GND` / `1.8k` | Masa común obligatoria |
+| `GPIO1 TX` | Jumper fondo | `Relé HW-482` | `S` | `inverted:true` `HIGH=off` seguro en boot `50ms` `LOW` pega `NO` |
+| `GPIO3 RX` | `Par4 Marrón` / `Blanco-Marrón` `UTP` | `Reed Portón` | `NO → GND` | `INPUT_PULLUP inverted:true` `50ms` `S.porton` `Porton ON=Abierto` `Parking.yaml:253` `Jumper` `2s` para flasheo `USB` |
+| `GPIO16 D0` | Cable corto fondo | `HC-SR04 Fondo` | `TRIG` | `GPIO16` no sirve como `Echo` `RTC sin IRQ` |
+| `GPIO12 D6` | Divisor `1k/1.8k` en fondo | `HC-SR04 Fondo` | `ECHO 5V` → `1k ─┬─► GPIO12 3.21V` / `1.8k ─► GND` `1.8mA` | `Parking.yaml:290` |
+| `GPIO0 D3` | `Par2 Naranja` `Blanco-Naranja` | `HC-SR04 Izq` | `TRIG` | `HIGH` en boot `strapping` `10k pullup` |
+| `GPIO5 D1` | `Par2 Naranja` + divisor | `HC-SR04 Izq` | `ECHO 5V` → `1k/1.8k` → `GPIO5` | Divisor junto a `MCU` |
+| `GPIO15 D8` | `Par3 Verde` `Blanco-Verde` | `HC-SR04 Der` | `TRIG` | `LOW` en boot `strapping` |
+| `GPIO4 D2` | `Par3 Verde` + divisor | `HC-SR04 Der` | `ECHO 5V` → `1k/1.8k` → `GPIO4` | Divisor junto a `MCU` |
+| `GPIO14 D5` | Cable corto fondo | `MAX7219` | `CLK` | `SPI` dedicado `Parking.yaml:427` |
+| `GPIO13 D7` | Cable corto fondo | `MAX7219` | `DIN MOSI` | — |
+| `GPIO2 D4` | Cable corto fondo | `MAX7219` | `CS` | `HIGH` en boot `strapping` |
+
+##### 2. Relé HW-482 `S/+/−` + `COM/NO/NC`
+
+| Borne Relé | Conexión | Origen | Destino | Notas |
+|---|---|---|---|---|
+| `S` | Jumper fondo | `GPIO1 TX` | — | `LOW` pega |
+| `+` | `VIN` | `NodeMCU VIN` | — | `jumper JD-VCC` puesto |
+| `−` | `GND` | `NodeMCU GND` | — | — |
+| `COM` | `VIN` | `NodeMCU VIN` | `5V` siempre | — |
+| `NO` | `Riel 5V` | — | `MAX7219 VCC` + `HC-SR04 Fondo VCC` + `Par1 Azul 5V` + `Cap 100nF` | `Riel conmutado` `PNO` |
+| `NC` | — | — | Sin uso | — |
+
+##### 3. Display MAX7219 `4×` `8×32`
+
+| Pin Display | Conexión | Origen | Destino | Notas |
+|---|---|---|---|---|
+| `CLK` | Cable corto | `GPIO14 D5` | — | `SPI` |
+| `DIN` | Cable corto | `GPIO13 D7` | — | — |
+| `CS` | Cable corto | `GPIO2 D4` | — | `HIGH` boot |
+| `VCC` | `NO` | `Relé NO` | — | `Riel conmutado` |
+| `GND` | `GND` | `NodeMCU GND` | — | `Level-converter` si flicker |
+
+##### 4. Sensores HC-SR04
+
+| Sensor | Pin | Conexión (UTP) | Origen NodeMCU | Pin destino | Notas |
+|---|---|---|---|---|---|
+| **Fondo** (fondo, corto) | `TRIG` | Cable corto | `GPIO16 D0` | — | — |
+|  | `ECHO 5V` | Divisor `1k/1.8k` fondo | `GPIO12 D6` | `3.21V` `1.8mA` | `Parking.yaml:290` |
+| **Izq** (portón) | `TRIG` | `Par2 Naranja` | `GPIO0 D3` | — | — |
+|  | `ECHO 5V` | `Par2 Naranja` + divisor fondo | `GPIO5 D1` | `1k/1.8k` | — |
+| **Der** (portón) | `TRIG` | `Par3 Verde` | `GPIO15 D8` | — | — |
+|  | `ECHO 5V` | `Par3 Verde` + divisor fondo | `GPIO4 D2` | `1k/1.8k` | — |
+| **Reed Portón** | `NO ×2` | `Par4 Marrón` + `GND` | `GPIO3 RX` | `GND Portón` | `70µA` señal `3.3V` `jumper` `2s` flasheo |
+| **UTP Cat5e** | `Par1 Azul` | `NO + GND` | — | `3× Láser 5V` + `VCC laterales` | `8/8` hilos `5V conmutado` |
+|  | `Par2 Naranja` | `GPIO0 D3 + GPIO5 D1` | — | — | `Trig/Echo Izq` |
+|  | `Par3 Verde` | `GPIO15 D8 + GPIO4 D2` | — | — | `Trig/Echo Der` |
+|  | `Par4 Marrón` | `GPIO3 RX + GND` | — | `Reed` | `Par4` solo señal |
+| **Bulk** | `470uF+100nF` | `VIN–GND` patas cortas | — | — | Picos `WiFi 400mA` |
+|  | `100nF` | `NO–GND` | — | Junto a `MAX7219` | Solo si flicker `STOP` |
 
 ### ⚡ Arquitectura de Energía (USB permanente + corte periféricos por GPIO)
 
